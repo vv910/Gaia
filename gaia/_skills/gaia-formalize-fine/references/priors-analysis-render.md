@@ -125,6 +125,26 @@ Group by theme: **experimental**, **computational**, **theoretical**. Within eac
 - **Missing comparisons:** theoretical predictions without experimental validation — what experiment could test them?
 - **Single-observation generalisations:** laws supported by only one observation — what additional observations would strengthen the `derive`?
 
+For every **experimental** gap, include enough structure for downstream
+experiment-planning skills to act without reinterpreting the whole package:
+
+- target weak claim or gap node
+- affected exported conclusions
+- gap type
+- hypothesis H
+- competing alternative Alt
+- discriminating observation needed
+- minimum experiment class
+- required controls
+- primary readouts
+- criterion for considering the gap closed
+
+Keep this section domain-generic. Domain-specific experiment planning should be
+delegated to a downstream skill, such as
+`gaia-gap-to-experiment-perovskite`, which can combine Gaia weak points with
+field-specific literature retrieval, mechanism evidence, readout selection, and
+experiment-card ranking.
+
 ### 5. Contradictions
 
 (a) Explicit `contradict(...)` relations modelled and how BP resolved them (which side won). (b) Internal tensions in the source that were not modelled as formal contradictions but are worth flagging.
