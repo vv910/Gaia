@@ -12,6 +12,18 @@ Each experimental gap from `ANALYSIS.md` must receive one complete YAML card.
 Cards may reference shared bundled experiments, but per-gap traceability must be
 preserved.
 
+Validate generated cards before handoff:
+
+```bash
+uv run python scripts/validate_experiment_cards.py experiments.yaml
+```
+
+For explicit synthetic smoke fixtures only:
+
+```bash
+uv run python scripts/validate_experiment_cards.py --smoke-test experiments.yaml
+```
+
 ## YAML Schema
 
 Every card in `experiments.yaml` must include these keys:
@@ -22,6 +34,7 @@ Every card in `experiments.yaml` must include these keys:
   target_claims:
   affected_conclusions:
   current_belief:
+  original_evidence_gap_text:
   gap_type:
   priority:
   priority_rationale:
@@ -46,6 +59,7 @@ Every card in `experiments.yaml` must include these keys:
   statistics_or_comparison_logic:
   failure_modes:
   interpretation_decision_tree:
+  outcome_matrix:
   belief_update_target:
   feasibility_notes:
   safety_boundary_note:
@@ -74,6 +88,10 @@ payloads; raw or longer summaries can live under `retrieval_evidence/`.
 : Belief from `.gaia/beliefs.json` when available. Use `unknown` only when the
   belief file cannot map the claim.
 
+`original_evidence_gap_text`
+: Verbatim or tightly excerpted Evidence Gap text from `ANALYSIS.md` that
+  motivated the card. Do not replace this with a new summary.
+
 `gap_type`
 : One of the perovskite taxonomy classes, with optional secondary tags.
 
@@ -99,7 +117,19 @@ payloads; raw or longer summaries can live under `retrieval_evidence/`.
   separate mechanisms.
 
 `primary_readouts`
-: Readouts that directly answer the discriminating observation.
+: Readouts that directly answer the discriminating observation. Every primary
+  readout must map to a specific uncertainty, H prediction, Alt prediction, or
+  alternative explanation. No orphan readouts are allowed.
+
+  Acceptable shape:
+
+  ```yaml
+  primary_readouts:
+    - name:
+      maps_to_uncertainty:
+      supports_H_pattern:
+      supports_Alt_pattern:
+  ```
 
 `success_criterion_for_closing_gap`
 : Criterion for considering the Gaia gap closed, tied to H-vs-Alt
@@ -116,6 +146,30 @@ payloads; raw or longer summaries can live under `retrieval_evidence/`.
 `interpretation_decision_tree`
 : Short if/then logic mapping readout patterns to H, Alt, mixed result, or
   inconclusive.
+
+`outcome_matrix`
+: Mandatory structured decision matrix that distinguishes H, Alt, and
+  unresolved cases:
+
+  ```yaml
+  outcome_matrix:
+    supports_H:
+      observation_pattern:
+      interpretation:
+      remaining_caveat:
+    supports_Alt:
+      observation_pattern:
+      interpretation:
+      remaining_caveat:
+    mixed_or_unresolved:
+      observation_pattern:
+      interpretation:
+      next_step:
+  ```
+
+  The matrix must be specific to the card's device context, target claim, and
+  primary readouts. It must not repeat generic phrases such as "further study is
+  needed."
 
 `belief_update_target`
 : Which Gaia claim(s), prior(s), or alternative likelihood ratio would change
@@ -147,6 +201,7 @@ Each gap section should include:
 - recommended experiment class
 - required controls
 - primary readouts
+- outcome matrix
 - database precedent summary
 - LKM mechanism summary
 - how results would update Gaia interpretation
@@ -207,6 +262,8 @@ Every card must specify:
 - what observation would distinguish them
 - what controls are required
 - what readouts are primary
+- which uncertainty each primary readout resolves
+- which outcome patterns support H, support Alt, or remain unresolved
 - how the result would change Gaia interpretation
 
 Reject or revise cards that only say "do more characterization," "study

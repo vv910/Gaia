@@ -4,6 +4,20 @@ Use LKM as a complementary reasoning-evidence source, not as a replacement for
 the local SQLite database. The database remains the hard gate for experiment
 cards.
 
+SQLite and LKM have different roles:
+
+- SQLite is for precedent discovery, device/composition/intervention matching,
+  paired performance deltas, hysteresis evidence, and stability protocol
+  comparison.
+- LKM is for mechanism claims, reasoning chains, competing explanations,
+  premises, variables/factors relevant to measurement logic, and why a readout
+  would distinguish H from Alt.
+
+Do not claim that SQLite performance deltas prove a mechanism by themselves.
+Use LKM or package-local reasoning to justify mechanism interpretation. If
+SQLite precedent patterns and LKM reasoning disagree, explicitly report the
+conflict and design the card to resolve it.
+
 The documented API base URL is:
 
 `https://open.bohrium.com/openapi/v1/lkm`
@@ -145,7 +159,7 @@ When LKM and the database disagree:
 
 - Favor neither source automatically.
 - State the conflict explicitly in `lkm_evidence_summary` and
-  `priority_rationale`.
+  `database_precedents`, `priority_rationale`, and the human-readable roadmap.
 - Design the card's discriminating observation to test the unresolved
   mechanism, not to confirm the preferred source.
 - Lower confidence unless the conflict itself makes the experiment especially

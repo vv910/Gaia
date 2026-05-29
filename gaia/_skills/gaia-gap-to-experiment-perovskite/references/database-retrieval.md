@@ -1,10 +1,16 @@
 # SQLite Literature Retrieval
 
-## Database Gate
+## Database Role And Gate
 
 The local perovskite SQLite database is mandatory:
 
 `/share/hwz/Perovskite_Database_Multiagents/literature_extraction/data_merger/merged_gpt5mini_data_with_chemical_data.db`
+
+Use SQLite for precedent discovery, device/composition/intervention matching,
+paired performance deltas, hysteresis evidence, and stability protocol
+comparison. SQLite rows are literature precedents, not mechanism proofs.
+Performance deltas can motivate or constrain H-vs-Alt hypotheses, but they do
+not prove a mechanism by themselves.
 
 For every experimental gap, query this database before drafting the experiment
 card. If the database cannot be opened, stop and report the blocker. Do not
@@ -102,17 +108,24 @@ Chemical descriptors may help identify material families:
 - `tpsa`
 - `log_p`
 
+Solvent, concentration, and process fields are metadata only. Do not convert
+them into actionable recipes or operating steps.
+
 ## Query Strategy Per Gap
 
-For each Gaia gap, derive search terms from the target device context, absorber,
-intervention location, modulator material or type, and mechanism terms.
+For each Gaia gap, derive search terms from the locked experiment object:
+source package, target device context, absorber, intervention location,
+modulator material or family, target metrics, and mechanism terms.
 
-Run several query classes, storing SQL text or a human-readable query summary in
-`database_queries_run`:
+Run tier-building query classes, storing SQL text or a human-readable query
+summary in `database_queries_run`:
 
-1. Exact match query: same architecture, absorber, and intervention location.
-2. Relaxed match query: same absorber family and same intervention location.
-3. Mechanism query: same modulator type or material family.
+1. Exact candidate query: same or highly similar architecture, absorber, and
+   intervention location.
+2. Relaxed candidate query: same architecture or absorber family and same
+   intervention location.
+3. Modulator/mechanism query: same modulator family, material family, or
+   mechanism keywords.
 4. Stability query: required when the gap concerns stability, degradation, or
    retention.
 5. FF/contact query: required when the gap concerns FF, transport,
@@ -241,7 +254,7 @@ For FF, normalize comparison scale before subtracting. If one value is a
 fraction (`0.81`) and the other is a percent (`81%`), convert both to the same
 scale and lower confidence if the scale inference is ambiguous.
 
-Report parse coverage:
+Report parse coverage for every card:
 
 ```text
 PCE delta coverage: 37/112 matched rows parseable (33%)
@@ -251,18 +264,54 @@ Jsc delta coverage: 30/112 matched rows parseable (27%)
 Hysteresis coverage: 14/112 matched rows parseable (13%)
 ```
 
-## Precedent Ranking
+## Tiered Precedent Filtering
 
-Rank retrieved rows by a transparent similarity score. Use this order of
-importance unless the gap gives a stronger reason:
+Classify every retrieved row into exactly one evidence tier before using it in a
+card.
+
+Tier 1:
+
+- same or highly similar `solar_cell_structure`
+- similar `cell_stack_sequence`
+- similar `perovskite_composition`
+- same `interfacial_modulator_material_application_location`
+- paired with/without modulator values exist
+- parseable FF, Voc, and PCE when relevant
+
+Tier 2:
+
+- same architecture or same absorber family
+- same intervention location
+- at least two parseable paired metrics
+
+Tier 3:
+
+- same modulator family or same mechanism keywords only
+- use for hypothesis generation, not strong support
+
+Low-confidence / reject:
+
+- unknown composition
+- unknown stack
+- no paired control
+- unparseable key metrics
+- intervention location missing when the gap is interface-specific
+
+Rows may be useful as cautionary context after rejection, but rejected rows do
+not raise confidence or precedent strength.
+
+## Similarity Scoring
+
+Within each tier, rank rows by a transparent `similarity_score` from 0.0 to
+1.0. Use this order of importance unless the gap gives a stronger reason:
 
 1. Similarity to target device stack.
 2. Similarity to perovskite composition or absorber family.
 3. Same intervention location.
 4. Same modulator type, material family, or named material.
 5. Presence of matched without/with modulator values.
-6. Availability of FF, Voc, PCE, hysteresis, and stability metrics relevant to
-   the gap.
+6. Availability of FF, Voc, PCE, Jsc, hysteresis, and stability metrics
+   relevant to the gap.
 7. Certification, measured area, and light-spectrum metadata when relevant.
 8. Citation/provenance metadata such as DOI, journal, and publication date.
 
@@ -270,14 +319,22 @@ Summarize the top precedents in `database_precedents`. Include enough
 provenance to trace the row, but do not turn solvent or concentration metadata
 into an actionable recipe.
 
-## Evidence Summary
+## Required Card Evidence
 
-For each gap, the database summary should state:
+Every experiment card must report:
 
-- query classes run
-- number of rows retrieved per class
-- top precedent rows and why they match
-- matched-control delta direction and coverage
-- whether database patterns support H, support Alt, are mixed, or are too sparse
-- missing fields that limit confidence
-- safety note for any solvent/concentration metadata
+- SQL query summaries in `database_queries_run`
+- row counts by query class
+- parse coverage for PCE, FF, Voc, Jsc, and hysteresis
+- `tier1_count`, `tier2_count`, `tier3_count`, and `rejected_count`
+- top precedent rows, each with:
+  - `similarity_score`
+  - `why_comparable`
+  - `why_limited`
+  - parsed deltas for available PCE, FF, Voc, Jsc, and hysteresis
+
+For each gap, the database summary should state whether database patterns
+support H, support Alt, are mixed, or are too sparse. If SQLite precedent
+patterns conflict with LKM mechanism evidence, report the conflict explicitly
+in both `database_precedents` and `lkm_evidence_summary`, lower confidence, and
+design the experiment around resolving the conflict.
