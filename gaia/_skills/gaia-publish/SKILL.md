@@ -3,9 +3,10 @@ name: gaia-publish
 description: |
   Use after `gaia run render <pkg> --target github` to fill the README skeleton
   with a per-conclusion evidence-assessment narrative, write Weak Points and
-  Evidence Gaps sections framed around internal nodes, then push README +
-  ANALYSIS.md + docs/detailed-reasoning.md to GitHub. Agent-side prose
-  discipline anchored on a single render verb.
+  Evidence Gaps sections framed around internal nodes, then prepare README +
+  ANALYSIS.md + docs/detailed-reasoning.md for final review, optional
+  domain-specific pre-commit experiment planning, commit, and push. Agent-side
+  prose discipline anchored on a single render verb.
 ---
 
 # gaia-publish
@@ -50,13 +51,10 @@ ls artifacts/                               # source paper, figures, references
 
 The README is an analysis of the reasoning graph, not a paper summary. The graph may assign low belief to claims the source presents confidently, or surface structural weaknesses the source glosses over. Trust the graph's assessment over the source's rhetoric — and explain the divergence when it exists.
 
-Finally, vanilla git for the push:
-
-```bash
-git add README.md ANALYSIS.md docs/detailed-reasoning.md
-git commit -m "docs: update README from gaia run render"
-git push origin main
-```
+Git is the final step, after README/ANALYSIS/docs are complete and any
+requested domain-specific pre-commit planning has either run or been
+intentionally skipped with a recorded reason. See the GitHub push section
+below; do not commit before a requested pre-commit handoff is resolved.
 
 ## Methodology
 
@@ -264,14 +262,69 @@ Run through the checklist:
 - [ ] Weak Points are framed as scientific critique, not graph-structure descriptions.
 - [ ] Bibliographic header present and complete.
 
+### Optional domain-specific pre-commit experiment planning
+
+This is a final research-planning handoff, not part of core formalization and
+not part of README drafting. If the package is a perovskite solar-cell package
+and the user wants experiment design, run
+`gaia-gap-to-experiment-perovskite` after `README.md`, `ANALYSIS.md`, and
+`docs/detailed-reasoning.md` are complete but before `git commit` / `git push`.
+
+The experiment-design step consumes finished publish artifacts. It should read
+`README.md`, `ANALYSIS.md`, `.gaia/beliefs.json`,
+`.github-output/docs/public/data/graph.json` when available,
+`src/<package>/*.py`, the local SQLite database, and LKM retrieval outputs when
+configured. It should not rewrite `README.md` unless the user explicitly asks.
+
+Review `EXPERIMENT_PLAN.md` and `experiments.yaml` before committing. Validate
+the machine-readable file:
+
+```bash
+uv run python scripts/validate_experiment_cards.py experiments.yaml
+```
+
+If strict mode is enabled and required package/device/gap context is missing,
+the perovskite skill must write `context_missing_preflight.yaml` and stop
+before generating generic experiment cards. Record that stop reason before
+commit if the user requested experiment planning.
+
 ### GitHub push
 
-Commit and push the README plus its companion documents:
+Commit and push only after README/ANALYSIS/docs are final and any requested
+experiment-design step has completed or was intentionally skipped with a
+recorded reason:
+
+1. Verify `README.md`, `ANALYSIS.md`, and `docs/detailed-reasoning.md` are
+   final.
+2. If the package is perovskite and experiment planning is requested, run
+   `gaia-gap-to-experiment-perovskite` now.
+3. Review `EXPERIMENT_PLAN.md` and `experiments.yaml` if generated.
+4. Validate `experiments.yaml`.
+5. Ensure no secrets such as `LKM_ACCESS_KEY`, `.env`, or raw credential
+   headers are written to outputs.
+6. Stage the publish files and generated experiment-planning artifacts that
+   exist.
+
+Base publish files:
 
 ```bash
 git add README.md ANALYSIS.md docs/detailed-reasoning.md
-git commit -m "docs: update README from gaia run render"
-git push origin main
+```
+
+Add experiment-planning outputs when generated:
+
+```bash
+git add EXPERIMENT_PLAN.md experiments.yaml retrieval_evidence.yaml
+git add context_missing_preflight.yaml
+git add lkm/*.json
+```
+
+Only stage `lkm/*.json` if the files are audit artifacts, reasonably sized, and
+not secret-bearing. Then commit and push:
+
+```bash
+git commit -m "docs: publish Gaia analysis"
+git push origin <branch>
 ```
 
 Optionally, the GitHub-target render also stages a wiki tree and a Pages template under `.github-output/`. To publish those:

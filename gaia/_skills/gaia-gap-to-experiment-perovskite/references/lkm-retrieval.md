@@ -43,6 +43,12 @@ If LKM access is unavailable or a request fails, record this in
 `lkm_evidence_summary`, reduce card confidence, and continue only when the
 SQLite database retrieval has succeeded.
 
+When LKM retrieval is used, write redacted audit artifacts under `lkm/*.json`.
+Store request summaries, endpoint names, result identifiers, relevant snippets,
+and failure metadata. Do not store `LKM_ACCESS_KEY`, request headers, `.env`
+contents, or other secrets. Summarize the same retrieval status in
+`retrieval_evidence.yaml`.
+
 ## Query Terms
 
 For every gap, build search text from:
@@ -88,6 +94,11 @@ resp = requests.post(f"{BASE_URL}/search", json=payload, headers=headers, timeou
 resp.raise_for_status()
 matches = resp.json()
 ```
+
+If claim search times out but reasoning-chain search and paper graph retrieval
+succeed, do not treat LKM as absent. Record the claim-search timeout in
+`retrieval_evidence.yaml` and `lkm_evidence_summary`, preserve the successful
+reasoning/paper-graph evidence, and add a confidence caveat.
 
 ### 2. Reasoning-Chain Search
 

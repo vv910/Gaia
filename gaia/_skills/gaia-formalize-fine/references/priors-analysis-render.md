@@ -143,7 +143,10 @@ Keep this section domain-generic. Domain-specific experiment planning should be
 delegated to a downstream skill, such as
 `gaia-gap-to-experiment-perovskite`, which can combine Gaia weak points with
 field-specific literature retrieval, mechanism evidence, readout selection, and
-experiment-card ranking.
+experiment-card ranking. Do not write `EXPERIMENT_PLAN.md`,
+`experiments.yaml`, `retrieval_evidence.yaml`, or LKM retrieval artifacts in
+`gaia-formalize-fine`; those are post-publish, pre-commit outputs owned by the
+downstream planning skill.
 
 ### 5. Contradictions
 

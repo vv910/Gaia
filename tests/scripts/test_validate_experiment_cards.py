@@ -183,6 +183,57 @@ def test_warning_conditions_are_reported() -> None:
     assert any("do more characterization" in warning for warning in result.warnings)
 
 
+def test_strict_mode_rejects_readme_fallback() -> None:
+    card = _valid_card()
+    card["original_evidence_gap_text"] = (
+        "README Evidence Gaps fallback was used because ANALYSIS.md was absent."
+    )
+
+    strict = validator.validate_payload([card])
+    permissive = validator.validate_payload([card], allow_readme_fallback=True)
+
+    assert any("README Evidence Gap fallback" in error for error in strict.errors)
+    assert permissive.errors == []
+    assert any("confidence must be downgraded" in warning for warning in permissive.warnings)
+
+
+def test_weak_lkm_summary_warns() -> None:
+    card = _valid_card()
+    card["lkm_evidence_summary"] = "available"
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("explicit LKM failure reason" in warning for warning in result.warnings)
+
+
+def test_vague_success_criterion_warns() -> None:
+    card = _valid_card()
+    card["success_criterion_for_closing_gap"] = "Close the gap."
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("success criterion is vague" in warning for warning in result.warnings)
+
+
+def test_low_parse_coverage_requires_database_confidence_note() -> None:
+    card = _valid_card()
+    assert isinstance(card["database_precedents"], dict)
+    parse_coverage = card["database_precedents"]["parse_coverage"]
+    assert isinstance(parse_coverage, dict)
+    parse_coverage["hysteresis"] = "0/2"
+
+    missing_note = validator.validate_payload([card])
+    card["database_confidence"] = (
+        "Hysteresis parse coverage is low; mechanism confidence is limited."
+    )
+    with_note = validator.validate_payload([card])
+
+    assert any("database_confidence" in warning for warning in missing_note.warnings)
+    assert not any("database_confidence" in warning for warning in with_note.warnings)
+
+
 def test_smoke_mode_relaxes_real_package_grounding() -> None:
     card = _valid_card()
     for key in (

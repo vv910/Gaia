@@ -6,7 +6,10 @@ Write:
 
 - `experiments.yaml`
 - `EXPERIMENT_PLAN.md`
-- optional `retrieval_evidence/` with database and LKM summaries
+- `retrieval_evidence.yaml` with database and LKM summaries
+- `context_missing_preflight.yaml` when strict-mode context is missing
+- `lkm/*.json` when LKM retrieval is used and the artifacts are not
+  secret-bearing
 
 Each experimental gap from `ANALYSIS.md` must receive one complete YAML card.
 Cards may reference shared bundled experiments, but per-gap traceability must be
@@ -23,6 +26,15 @@ For explicit synthetic smoke fixtures only:
 ```bash
 uv run python scripts/validate_experiment_cards.py --smoke-test experiments.yaml
 ```
+
+For permissive/trial runs that explicitly used README Evidence Gaps because
+`ANALYSIS.md` was absent:
+
+```bash
+uv run python scripts/validate_experiment_cards.py --allow-readme-fallback experiments.yaml
+```
+
+Do not use README fallback in strict real-package mode.
 
 ## YAML Schema
 
@@ -70,7 +82,8 @@ Every card in `experiments.yaml` must include these keys:
 Use lists for multi-valued fields. Prefer concise strings over deeply nested
 objects unless nesting improves traceability. `database_queries_run` and
 `lkm_queries_run` may contain summarized query descriptors rather than full raw
-payloads; raw or longer summaries can live under `retrieval_evidence/`.
+payloads; raw or longer summaries can live in `retrieval_evidence.yaml` and
+`lkm/*.json` audit artifacts.
 
 ## Required Semantics
 
@@ -101,6 +114,22 @@ payloads; raw or longer summaries can live under `retrieval_evidence/`.
 `discriminating_observation`
 : Observation that would distinguish H from Alt. It must be more specific than
   "improved performance."
+
+`database_precedents`
+: SQLite precedent summary. Must include query summaries or row-count links,
+  tier1/tier2/tier3/rejected counts, parse coverage for PCE, FF, Voc, Jsc, and
+  hysteresis, and top precedent rows with similarity score, comparability
+  rationale, limitation rationale, and parsed deltas.
+
+`database_confidence`
+: Required when parse coverage is low, tier-1 evidence is absent, or many rows
+  have unknown composition/stack. State the limitation that should lower card
+  confidence. Do not upgrade mechanism confidence from SQLite performance
+  deltas alone.
+
+`lkm_evidence_summary`
+: Mechanism/reasoning evidence from LKM, or an explicit failure/unavailable
+  reason. If SQLite and LKM disagree, state the conflict directly.
 
 `recommended_experiment_class`
 : Class of experiment or characterization campaign, not an operational

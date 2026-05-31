@@ -70,9 +70,51 @@ GENERIC_PHRASES = (
     "further study is needed",
     "optimize conditions",
     "perform additional tests",
+    "study stability further",
 )
 
 UNKNOWN_VALUES = {"", "unknown", "unk", "na", "n/a", "none", "null", "-"}
+README_FALLBACK_MARKERS = (
+    "readme evidence gap",
+    "readme evidence gaps",
+    "readme fallback",
+    "fallback to readme",
+)
+ANALYSIS_ABSENT_MARKERS = (
+    "analysis.md absent",
+    "analysis.md missing",
+    "analysis missing",
+)
+VAGUE_SUCCESS_MARKERS = (
+    "close the gap",
+    "improve performance",
+    "clear result",
+    "validate hypothesis",
+    "confirm the mechanism",
+    "better understanding",
+    "determine whether",
+)
+LKM_EVIDENCE_MARKERS = (
+    "lkm",
+    "reasoning",
+    "claim",
+    "chain",
+    "paper graph",
+    "paper_graph",
+    "mechanism",
+    "premise",
+)
+LKM_FAILURE_MARKERS = (
+    "unavailable",
+    "not available",
+    "failed",
+    "failure",
+    "timeout",
+    "timed out",
+    "error",
+    "access key",
+    "no lkm",
+)
 READOUT_MAPPING_KEYS = (
     "maps_to_uncertainty",
     "uncertainty",
@@ -144,7 +186,9 @@ def extract_cards(payload: Any) -> tuple[list[Any], bool]:
     raise ValueError("no experiment card list found; expected top-level list or `experiments:`")
 
 
-def validate_payload(payload: Any, *, smoke_test: bool = False) -> ValidationResult:
+def validate_payload(
+    payload: Any, *, smoke_test: bool = False, allow_readme_fallback: bool = False
+) -> ValidationResult:
     """Validate a parsed YAML payload."""
     result = ValidationResult()
     try:
@@ -161,11 +205,24 @@ def validate_payload(payload: Any, *, smoke_test: bool = False) -> ValidationRes
 
     for index, card in enumerate(cards):
         card_path = f"cards[{index}]"
-        result.extend(validate_card(card, card_path=card_path, smoke_test=smoke_test))
+        result.extend(
+            validate_card(
+                card,
+                card_path=card_path,
+                smoke_test=smoke_test,
+                allow_readme_fallback=allow_readme_fallback,
+            )
+        )
     return result
 
 
-def validate_card(card: Any, *, card_path: str, smoke_test: bool = False) -> ValidationResult:
+def validate_card(
+    card: Any,
+    *,
+    card_path: str,
+    smoke_test: bool = False,
+    allow_readme_fallback: bool = False,
+) -> ValidationResult:
     """Validate one experiment card."""
     result = ValidationResult()
     if not isinstance(card, dict):
@@ -197,6 +254,7 @@ def validate_card(card: Any, *, card_path: str, smoke_test: bool = False) -> Val
         result,
         path_join(card_path, "database_precedents"),
     )
+    warn_database_confidence_limitations(card, result, card_path)
     validate_outcome_matrix(
         card.get("outcome_matrix"), result, path_join(card_path, "outcome_matrix")
     )
@@ -206,6 +264,15 @@ def validate_card(card: Any, *, card_path: str, smoke_test: bool = False) -> Val
     warn_generic_device_context(
         card.get("device_context"), result, path_join(card_path, "device_context")
     )
+    validate_readme_fallback(
+        card,
+        result,
+        card_path,
+        smoke_test=smoke_test,
+        allow_readme_fallback=allow_readme_fallback,
+    )
+    warn_lkm_evidence_summary(card.get("lkm_evidence_summary"), result, card_path)
+    warn_vague_success_criterion(card.get("success_criterion_for_closing_gap"), result, card_path)
     warn_unknown_composition_confidence(card, result, card_path)
     warn_generic_phrases(card, result, card_path)
 
@@ -271,6 +338,59 @@ def validate_top_precedent_rows(rows: Any, result: ValidationResult, path: str) 
                 result.errors.append(
                     f"{row_path}.{field_name}: required precedent field is missing"
                 )
+
+
+def warn_database_confidence_limitations(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Warn when low parse coverage lacks a database-confidence limitation."""
+    precedents = card.get("database_precedents")
+    if not isinstance(precedents, dict):
+        return
+
+    parse_coverage = precedents.get("parse_coverage")
+    if not isinstance(parse_coverage, dict):
+        return
+
+    if not parse_coverage_is_low(parse_coverage):
+        return
+
+    if is_missing(card.get("database_confidence")):
+        result.warnings.append(
+            f"{path}.database_confidence: low parse coverage should be recorded "
+            "as a database-confidence limitation"
+        )
+
+
+def parse_coverage_is_low(parse_coverage: dict[str, Any]) -> bool:
+    """Return true when a parse-coverage mapping contains a low ratio."""
+    for value in parse_coverage.values():
+        ratio = parse_coverage_ratio(value)
+        if ratio is not None and ratio < 0.5:
+            return True
+    return False
+
+
+def parse_coverage_ratio(value: Any) -> float | None:
+    """Parse common coverage values into a 0-1 ratio."""
+    if isinstance(value, int | float):
+        numeric = float(value)
+        return numeric if 0 <= numeric <= 1 else None
+
+    text = stringify(value).strip()
+    if "/" not in text:
+        return None
+
+    numerator_text, denominator_text = text.split("/", 1)
+    try:
+        numerator = float(numerator_text)
+        denominator = float(denominator_text)
+    except ValueError:
+        return None
+
+    if denominator <= 0:
+        return None
+    return numerator / denominator
 
 
 def lookup_tier_count(database_precedents: dict[str, Any], tier: str) -> Any:
@@ -341,6 +461,69 @@ def warn_generic_device_context(value: Any, result: ValidationResult, path: str)
         ]
         if nonempty_values and all(item in GENERIC_DEVICE_CONTEXTS for item in nonempty_values):
             result.warnings.append(f"{path}: contains only generic perovskite solar-cell context")
+
+
+def validate_readme_fallback(
+    card: dict[str, Any],
+    result: ValidationResult,
+    path: str,
+    *,
+    smoke_test: bool,
+    allow_readme_fallback: bool,
+) -> None:
+    """Reject README Evidence Gap fallback in strict real-package mode."""
+    if smoke_test:
+        return
+
+    fallback_text = " ".join(text.lower() for _, text in iter_strings(card, path))
+    used_readme_fallback = any(marker in fallback_text for marker in README_FALLBACK_MARKERS)
+    used_readme_fallback = used_readme_fallback or (
+        "readme" in fallback_text
+        and "evidence gap" in fallback_text
+        and any(marker in fallback_text for marker in ANALYSIS_ABSENT_MARKERS)
+    )
+    if not used_readme_fallback:
+        return
+
+    message = (
+        f"{path}: README Evidence Gap fallback is not allowed in strict mode when "
+        "ANALYSIS.md is absent"
+    )
+    if allow_readme_fallback:
+        result.warnings.append(f"{message}; confidence must be downgraded")
+    else:
+        result.errors.append(message)
+
+
+def warn_lkm_evidence_summary(value: Any, result: ValidationResult, path: str) -> None:
+    """Warn when LKM summary lacks evidence content or an explicit failure reason."""
+    if is_missing(value):
+        return
+
+    text = " ".join(text.lower() for _, text in iter_strings(value, path))
+    if not text.strip():
+        return
+
+    has_evidence = any(marker in text for marker in LKM_EVIDENCE_MARKERS)
+    has_failure = any(marker in text for marker in LKM_FAILURE_MARKERS)
+    if not has_evidence and not has_failure:
+        result.warnings.append(
+            f"{path}.lkm_evidence_summary: does not describe LKM evidence or an "
+            "explicit LKM failure reason"
+        )
+
+
+def warn_vague_success_criterion(value: Any, result: ValidationResult, path: str) -> None:
+    """Warn when the gap-closing success criterion is too vague to validate."""
+    if is_missing(value):
+        return
+
+    text = stringify(value).strip()
+    lowered = text.lower()
+    if len(text) < 24 or any(marker in lowered for marker in VAGUE_SUCCESS_MARKERS):
+        result.warnings.append(
+            f"{path}.success_criterion_for_closing_gap: success criterion is vague"
+        )
 
 
 def warn_unknown_composition_confidence(
@@ -457,6 +640,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Relax real-package grounding checks for explicit synthetic smoke fixtures.",
     )
+    parser.add_argument(
+        "--allow-readme-fallback",
+        action="store_true",
+        help=(
+            "Allow permissive/trial README Evidence Gap fallback when ANALYSIS.md "
+            "is absent; strict real-package mode should not use this."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -464,7 +655,11 @@ def main(argv: list[str] | None = None) -> int:
     """Validate an experiment-card YAML file."""
     args = parse_args(sys.argv[1:] if argv is None else argv)
     payload = load_yaml(args.path)
-    result = validate_payload(payload, smoke_test=args.smoke_test)
+    result = validate_payload(
+        payload,
+        smoke_test=args.smoke_test,
+        allow_readme_fallback=args.allow_readme_fallback,
+    )
     print_result(result)
     return 1 if result.errors else 0
 

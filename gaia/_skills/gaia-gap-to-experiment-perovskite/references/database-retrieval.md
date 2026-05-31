@@ -315,9 +315,9 @@ Within each tier, rank rows by a transparent `similarity_score` from 0.0 to
 7. Certification, measured area, and light-spectrum metadata when relevant.
 8. Citation/provenance metadata such as DOI, journal, and publication date.
 
-Summarize the top precedents in `database_precedents`. Include enough
-provenance to trace the row, but do not turn solvent or concentration metadata
-into an actionable recipe.
+Summarize the top precedents in `database_precedents` and the broader query
+audit in `retrieval_evidence.yaml`. Include enough provenance to trace the row,
+but do not turn solvent or concentration metadata into an actionable recipe.
 
 ## Required Card Evidence
 
@@ -338,3 +338,8 @@ support H, support Alt, are mixed, or are too sparse. If SQLite precedent
 patterns conflict with LKM mechanism evidence, report the conflict explicitly
 in both `database_precedents` and `lkm_evidence_summary`, lower confidence, and
 design the experiment around resolving the conflict.
+
+If SQLite is available but parse coverage is low, continue only with an
+explicit `database_confidence` limitation in each affected card. The limitation
+must say which metrics or tiers are weak and must not upgrade mechanism
+confidence from performance deltas alone.
