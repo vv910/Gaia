@@ -9,6 +9,7 @@ carry the grounding/evidence/decision fields required by the
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,18 +18,42 @@ from typing import Any
 import yaml
 
 REQUIRED_FIELDS = (
+    "gap_id",
+    "gap_type",
+    "priority",
+    "priority_rationale",
+    "scientific_uncertainty",
     "hypothesis_H",
     "alternative_Alt",
     "discriminating_observation",
     "database_queries_run",
     "database_precedents",
+    "sqlite_role",
+    "lkm_queries_run",
+    "lkm_role",
     "lkm_evidence_summary",
+    "mechanism_source_breakdown",
+    "same_package_lkm_chains",
+    "cross_package_lkm_chains",
+    "sqlite_lkm_conflicts",
+    "mechanism_attribution_limitations",
+    "gap_resolution_strategy",
     "outcome_matrix",
+    "variables_to_vary",
     "controls",
     "primary_readouts",
+    "secondary_readouts",
     "expected_result_if_H",
     "expected_result_if_Alt",
     "success_criterion_for_closing_gap",
+    "minimum_replicate_logic",
+    "statistics_or_comparison_logic",
+    "failure_modes",
+    "interpretation_decision_tree",
+    "belief_update_target",
+    "feasibility_notes",
+    "confidence",
+    "open_questions",
     "safety_boundary_note",
 )
 
@@ -38,14 +63,28 @@ REAL_PACKAGE_FIELDS = (
     "affected_conclusions",
     "current_belief",
     "original_evidence_gap_text",
-    "device_context",
+    "source_device_context",
+    "lab_translation_context",
+    "portability_risks_for_p_i_n",
 )
 
 DEVICE_CONTEXT_FIELDS = (
     "solar_cell_structure",
+    "cell_stack_sequence",
     "perovskite_composition",
     "intervention_location",
     "modulator_material_or_family",
+)
+
+LAB_TRANSLATION_CONTEXT_FIELDS = (
+    "lab_preferred_device_architecture",
+    "translation_note",
+)
+
+MECHANISM_SOURCE_FIELDS = (
+    "package_local_gaia_evidence",
+    "lkm_mechanism_reasoning",
+    "sqlite_precedent_delta_background",
 )
 
 OUTCOME_MATRIX_FIELDS = {
@@ -105,6 +144,7 @@ LKM_EVIDENCE_MARKERS = (
     "premise",
 )
 LKM_FAILURE_MARKERS = (
+    "lkm_unavailable",
     "unavailable",
     "not available",
     "failed",
@@ -115,6 +155,16 @@ LKM_FAILURE_MARKERS = (
     "access key",
     "no lkm",
 )
+LKM_PROVENANCE_FIELDS = (
+    "source_package",
+    "paper_id",
+    "claim_id",
+    "conclusion_id",
+    "chain_id",
+    "title",
+    "score",
+    "rerank_score",
+)
 READOUT_MAPPING_KEYS = (
     "maps_to_uncertainty",
     "uncertainty",
@@ -123,6 +173,64 @@ READOUT_MAPPING_KEYS = (
     "supports_Alt_pattern",
     "h_alt_mapping",
     "decision_mapping",
+)
+SQLITE_ROLE_MARKERS = (
+    "precedent discovery",
+    "stack",
+    "intervention",
+    "paired delta",
+    "not mechanism proof",
+)
+SQLITE_FORBIDDEN_MECHANISM_PATTERNS = (
+    "sqlite proves",
+    "database proves",
+    "sqlite confirms the mechanism",
+    "database confirms the mechanism",
+    "sqlite closes the mechanism gap",
+    "database closes the mechanism gap",
+    "deltas prove",
+    "delta proves",
+)
+CAUSAL_ATTRIBUTION_MARKERS = (
+    "sole cause attribution",
+    "passivation not isolated",
+    "morphology/contact alternative",
+    "hydrophobicity alternative",
+    "multifunctional",
+    "causal attribution",
+    "causal isolation",
+)
+ANALOG_COVARIATE_MARKERS = (
+    "morphology",
+    "crystallinity",
+    "hydrophobicity",
+    "contact energetics",
+    "recombination",
+    "trap",
+)
+PIN_MARKERS = ("p-i-n", "pin", "inverted", "reverse")
+NIP_MARKERS = ("n-i-p", "nip")
+OPERATIONAL_RECIPE_MARKERS = (
+    "spin coat",
+    "spin-coat",
+    "drop-cast",
+    "antisolvent",
+    "hotplate",
+    "glovebox",
+    "anneal at",
+    "anneal for",
+    "dmf",
+    "dmso",
+    "chlorobenzene",
+    "toluene",
+    "isopropanol",
+    "ipa",
+    "rpm",
+)
+OPERATIONAL_RECIPE_PATTERNS = (
+    re.compile(r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mm|mM|mol\s*/\s*l|wt%|vol%)\b", re.I),
+    re.compile(r"\b\d+(?:\.\d+)?\s*(?:ul|uL|ml|mL)\b"),
+    re.compile(r"\b(?:anneal|heating|heat)\b.{0,40}\b\d{2,3}\s*(?:degc|c|°c)\b", re.I),
 )
 
 
@@ -216,6 +324,62 @@ def validate_payload(
     return result
 
 
+def validate_retrieval_evidence_payload(payload: Any) -> ValidationResult:
+    """Validate optional ``retrieval_evidence.yaml`` diagnostics."""
+    result = ValidationResult()
+    gap_entries = extract_retrieval_gap_entries(payload)
+    if not gap_entries:
+        result.errors.append("retrieval_evidence.yaml: no per-gap retrieval entries found")
+        return result
+
+    for index, gap in enumerate(gap_entries):
+        path = f"retrieval_evidence[{index}]"
+        if not isinstance(gap, dict):
+            result.errors.append(f"{path}: gap retrieval entry must be a mapping")
+            continue
+        for field_name in (
+            "gap_id",
+            "successful_endpoints",
+            "failed_endpoints",
+            "same_package_lkm_chains",
+            "cross_package_lkm_chains",
+        ):
+            if field_name not in gap or (
+                field_name == "gap_id" and is_missing(gap.get(field_name))
+            ):
+                result.errors.append(f"{path}.{field_name}: required field is missing")
+        if parse_coverage_is_low_mapping(gap) and is_missing(gap.get("parse_coverage_warning")):
+            result.warnings.append(
+                f"{path}.parse_coverage_warning: low SQLite coverage should be explicit"
+            )
+        if not is_missing(gap.get("architecture_translation_warning")):
+            continue
+        architecture_text = " ".join(text.lower() for _, text in iter_strings(gap, path))
+        if contains_any(architecture_text, NIP_MARKERS) and contains_any(
+            architecture_text, PIN_MARKERS
+        ):
+            result.warnings.append(
+                f"{path}.architecture_translation_warning: source/lab architecture "
+                "translation should be explicit"
+            )
+    return result
+
+
+def extract_retrieval_gap_entries(payload: Any) -> list[Any]:
+    """Return common per-gap retrieval evidence shapes."""
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key in ("gaps", "retrieval_evidence", "gap_retrieval", "per_gap"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return list(value.values())
+    return []
+
+
 def validate_card(
     card: Any,
     *,
@@ -235,14 +399,22 @@ def validate_card(
             if field_name not in required:
                 required.append(field_name)
 
-    for field_name in required:
-        if is_missing(card.get(field_name)):
-            result.errors.append(f"{card_path}.{field_name}: required field is missing")
+    validate_required_fields(card, required, result, card_path)
 
     if not smoke_test:
+        source_context = card.get("source_device_context")
+        if is_missing(source_context):
+            source_context = card.get("device_context")
         validate_device_context(
-            card.get("device_context"), result, path_join(card_path, "device_context")
+            source_context, result, path_join(card_path, "source_device_context")
         )
+        validate_lab_translation_context(
+            card.get("lab_translation_context"),
+            source_context,
+            result,
+            path_join(card_path, "lab_translation_context"),
+        )
+        validate_device_orientation_policy(card, source_context, result, card_path)
 
     if "interpretation_decision_tree" not in card and "outcome_matrix" not in card:
         result.errors.append(
@@ -254,15 +426,43 @@ def validate_card(
         result,
         path_join(card_path, "database_precedents"),
     )
+    validate_sqlite_role(card.get("sqlite_role"), result, path_join(card_path, "sqlite_role"))
     warn_database_confidence_limitations(card, result, card_path)
+    validate_mechanism_source_breakdown(
+        card.get("mechanism_source_breakdown"),
+        result,
+        path_join(card_path, "mechanism_source_breakdown"),
+    )
+    validate_lkm_chain_scope(
+        card.get("same_package_lkm_chains"),
+        expected_scope="same_package",
+        result=result,
+        path=path_join(card_path, "same_package_lkm_chains"),
+    )
+    validate_lkm_chain_scope(
+        card.get("cross_package_lkm_chains"),
+        expected_scope="cross_package",
+        result=result,
+        path=path_join(card_path, "cross_package_lkm_chains"),
+    )
+    validate_lkm_failure_confidence(card, result, card_path)
+    validate_sqlite_mechanism_limits(card, result, card_path)
     validate_outcome_matrix(
         card.get("outcome_matrix"), result, path_join(card_path, "outcome_matrix")
     )
+    validate_gap_resolution_strategy(
+        card.get("gap_resolution_strategy"),
+        result,
+        path_join(card_path, "gap_resolution_strategy"),
+    )
+    validate_causal_isolation_controls(card, result, card_path)
     warn_readout_mappings(
         card.get("primary_readouts"), result, path_join(card_path, "primary_readouts")
     )
     warn_generic_device_context(
-        card.get("device_context"), result, path_join(card_path, "device_context")
+        card.get("source_device_context", card.get("device_context")),
+        result,
+        path_join(card_path, "source_device_context"),
     )
     validate_readme_fallback(
         card,
@@ -275,8 +475,33 @@ def validate_card(
     warn_vague_success_criterion(card.get("success_criterion_for_closing_gap"), result, card_path)
     warn_unknown_composition_confidence(card, result, card_path)
     warn_generic_phrases(card, result, card_path)
+    validate_no_operational_recipe(card, result, card_path)
 
     return result
+
+
+def validate_required_fields(
+    card: dict[str, Any], required: list[str], result: ValidationResult, card_path: str
+) -> None:
+    """Validate card-level required fields with transitional aliases."""
+    presence_only_fields = {"same_package_lkm_chains", "cross_package_lkm_chains"}
+    for field_name in required:
+        if (
+            field_name == "source_device_context"
+            and is_missing(card.get(field_name))
+            and not is_missing(card.get("device_context"))
+        ):
+            result.warnings.append(
+                f"{card_path}.source_device_context: missing canonical field; "
+                "using legacy `device_context` as a transitional alias"
+            )
+            continue
+        if field_name in presence_only_fields:
+            if field_name not in card:
+                result.errors.append(f"{card_path}.{field_name}: required field is missing")
+            continue
+        if is_missing(card.get(field_name)):
+            result.errors.append(f"{card_path}.{field_name}: required field is missing")
 
 
 def validate_device_context(value: Any, result: ValidationResult, path: str) -> None:
@@ -288,6 +513,71 @@ def validate_device_context(value: Any, result: ValidationResult, path: str) -> 
     for field_name in DEVICE_CONTEXT_FIELDS:
         if is_missing(value.get(field_name)):
             result.errors.append(f"{path}.{field_name}: required device-context field is missing")
+
+
+def validate_lab_translation_context(
+    value: Any, source_context: Any, result: ValidationResult, path: str
+) -> None:
+    """Require the lab-preferred p-i-n translation context without overwriting source."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: must be a mapping")
+        return
+
+    for field_name in LAB_TRANSLATION_CONTEXT_FIELDS:
+        if is_missing(value.get(field_name)):
+            result.errors.append(f"{path}.{field_name}: required field is missing")
+
+    preference_text = stringify(value.get("lab_preferred_device_architecture")).lower()
+    if not contains_any(preference_text, PIN_MARKERS):
+        result.errors.append(
+            f"{path}.lab_preferred_device_architecture: must identify inverted p-i-n"
+        )
+
+    source_text = " ".join(text.lower() for _, text in iter_strings(source_context, path))
+    translation_text = " ".join(text.lower() for _, text in iter_strings(value, path))
+    if contains_any(source_text, NIP_MARKERS) and not (
+        "translation" in translation_text or "adaptation" in translation_text
+    ):
+        result.errors.append(
+            f"{path}.translation_note: n-i-p sources require an explicit p-i-n "
+            "translation/adaptation note"
+        )
+
+
+def validate_device_orientation_policy(
+    card: dict[str, Any], source_context: Any, result: ValidationResult, path: str
+) -> None:
+    """Validate p-i-n lab preference while preserving source-device context."""
+    source_text = " ".join(text.lower() for _, text in iter_strings(source_context, path))
+    lab_text = " ".join(
+        text.lower() for _, text in iter_strings(card.get("lab_translation_context"), path)
+    )
+    controls_text = " ".join(text.lower() for _, text in iter_strings(card.get("controls"), path))
+
+    if contains_any(source_text, NIP_MARKERS):
+        for field_name in (
+            "portability_risks_for_p_i_n",
+            "architecture_sensitive_readouts",
+            "what_not_to_generalize",
+        ):
+            if is_missing(card.get(field_name)):
+                result.errors.append(
+                    f"{path}.{field_name}: required when source architecture differs "
+                    "from inverted p-i-n lab preference"
+                )
+        if not contains_any(lab_text, PIN_MARKERS):
+            result.errors.append(
+                f"{path}.lab_translation_context: must include inverted p-i-n adaptation"
+            )
+
+    has_pin_lab_context = contains_any(lab_text, PIN_MARKERS)
+    has_pin_matched_controls = contains_any(controls_text, ("matched", "p-i-n", "same stack"))
+    if contains_any(source_text, PIN_MARKERS) and not (
+        has_pin_lab_context and has_pin_matched_controls
+    ):
+        result.errors.append(
+            f"{path}.controls: p-i-n source packages require matched p-i-n controls/readouts"
+        )
 
 
 def validate_database_precedents(value: Any, result: ValidationResult, path: str) -> None:
@@ -340,6 +630,142 @@ def validate_top_precedent_rows(rows: Any, result: ValidationResult, path: str) 
                 )
 
 
+def validate_sqlite_role(value: Any, result: ValidationResult, path: str) -> None:
+    """Ensure SQLite is explicitly limited to precedent/delta background."""
+    text = " ".join(item.lower() for _, item in iter_strings(value, path))
+    if not text:
+        return
+
+    missing = [marker for marker in SQLITE_ROLE_MARKERS if marker not in text]
+    if missing:
+        result.errors.append(
+            f"{path}: must state SQLite is for precedent discovery, stack/intervention "
+            "matching, paired delta background, and not mechanism proof"
+        )
+
+
+def validate_mechanism_source_breakdown(value: Any, result: ValidationResult, path: str) -> None:
+    """Require explicit source separation for mechanism attribution."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: must be a mapping")
+        return
+
+    for field_name in MECHANISM_SOURCE_FIELDS:
+        if is_missing(value.get(field_name)):
+            result.errors.append(f"{path}.{field_name}: required field is missing")
+
+    sqlite_text = " ".join(
+        text.lower()
+        for _, text in iter_strings(value.get("sqlite_precedent_delta_background"), path)
+    )
+    if any(pattern in sqlite_text for pattern in ("proves", "primary mechanism")) or (
+        "proof" in sqlite_text and "not mechanism proof" not in sqlite_text
+    ):
+        result.errors.append(
+            f"{path}.sqlite_precedent_delta_background: SQLite cannot be mechanism proof"
+        )
+
+
+def validate_lkm_chain_scope(
+    value: Any, *, expected_scope: str, result: ValidationResult, path: str
+) -> None:
+    """Validate same-package and cross-package LKM chain provenance."""
+    if is_missing(value):
+        return
+    if not isinstance(value, list):
+        result.errors.append(f"{path}: must be a list")
+        return
+
+    for index, chain in enumerate(value):
+        chain_path = path_join(path, index)
+        if not isinstance(chain, dict):
+            result.errors.append(f"{chain_path}: chain summary must be a mapping")
+            continue
+
+        scope = stringify(
+            first_present(chain, ("reasoning_scope", "scope", "chain_scope", "provenance_scope"))
+        ).lower()
+        cross_flag = chain.get("cross_package")
+        if expected_scope == "cross_package":
+            if scope and "cross" not in scope:
+                result.errors.append(f"{chain_path}: cross-package chain mislabeled as {scope}")
+            if cross_flag is False:
+                result.errors.append(f"{chain_path}.cross_package: must not be false")
+        else:
+            if scope and "same" not in scope:
+                result.errors.append(f"{chain_path}: same-package chain mislabeled as {scope}")
+            if cross_flag is True:
+                result.errors.append(f"{chain_path}.cross_package: must not be true")
+
+        if all(is_missing(chain.get(field_name)) for field_name in LKM_PROVENANCE_FIELDS):
+            result.errors.append(
+                f"{chain_path}: must preserve at least one LKM provenance field "
+                "(source_package, paper_id, claim_id, conclusion_id, chain_id, title, score)"
+            )
+
+
+def validate_lkm_failure_confidence(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Cap confidence when LKM is unavailable or failed."""
+    lkm_text = " ".join(
+        text.lower()
+        for _, text in iter_strings(
+            {
+                "lkm_role": card.get("lkm_role"),
+                "lkm_evidence_summary": card.get("lkm_evidence_summary"),
+                "lkm_queries_run": card.get("lkm_queries_run"),
+            },
+            path,
+        )
+    )
+    if not any(marker in lkm_text for marker in LKM_FAILURE_MARKERS):
+        return
+
+    confidence = normalize_confidence(card.get("confidence"))
+    if confidence == "high":
+        result.errors.append(f"{path}.confidence: LKM failure cannot have high confidence")
+        return
+
+    if confidence == "moderate":
+        local_text = mechanism_source_text(card, "package_local_gaia_evidence")
+        has_local_support = (
+            "package-local" in local_text or "package local" in local_text or "strong" in local_text
+        )
+        if not has_local_support:
+            result.errors.append(
+                f"{path}.confidence: LKM failure permits moderate confidence only with "
+                "strong package-local Gaia mechanism reasoning"
+            )
+
+
+def validate_sqlite_mechanism_limits(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Reject SQLite-only mechanism closure or attribution."""
+    all_text = " ".join(text.lower() for _, text in iter_strings(card, path))
+    for pattern in SQLITE_FORBIDDEN_MECHANISM_PATTERNS:
+        if pattern in all_text:
+            result.errors.append(f"{path}: SQLite/delta evidence cannot prove mechanism")
+            break
+
+    lkm_failed = any(marker in all_text for marker in LKM_FAILURE_MARKERS)
+    local_text = mechanism_source_text(card, "package_local_gaia_evidence")
+    success_text = " ".join(
+        text.lower()
+        for _, text in iter_strings(card.get("success_criterion_for_closing_gap"), path)
+    )
+    if (
+        lkm_failed
+        and not local_text.strip()
+        and ("mechanism gap closed" in success_text or "close mechanism gap" in success_text)
+    ):
+        result.errors.append(
+            f"{path}.success_criterion_for_closing_gap: SQLite-only evidence cannot "
+            "close a mechanism gap"
+        )
+
+
 def warn_database_confidence_limitations(
     card: dict[str, Any], result: ValidationResult, path: str
 ) -> None:
@@ -367,6 +793,15 @@ def parse_coverage_is_low(parse_coverage: dict[str, Any]) -> bool:
     for value in parse_coverage.values():
         ratio = parse_coverage_ratio(value)
         if ratio is not None and ratio < 0.5:
+            return True
+    return False
+
+
+def parse_coverage_is_low_mapping(value: dict[str, Any]) -> bool:
+    """Return true when an arbitrary retrieval entry has low SQLite coverage."""
+    for key in ("parse_coverage", "sqlite_parse_coverage", "database_parse_coverage"):
+        coverage = value.get(key)
+        if isinstance(coverage, dict) and parse_coverage_is_low(coverage):
             return True
     return False
 
@@ -431,6 +866,65 @@ def validate_outcome_matrix(value: Any, result: ValidationResult, path: str) -> 
         for field_name in fields:
             if is_missing(branch_value.get(field_name)):
                 result.errors.append(f"{branch_path}.{field_name}: required field is missing")
+
+
+def validate_gap_resolution_strategy(value: Any, result: ValidationResult, path: str) -> None:
+    """Require a generic, extensible gap-resolution design strategy."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: must be a mapping")
+        return
+
+    required_fields = (
+        "strategy_type",
+        "uncertainty_to_resolve",
+        "decomposition_axes",
+        "confounders_to_bound",
+        "decision_rules",
+        "extension_hooks",
+    )
+    for field_name in required_fields:
+        if is_missing(value.get(field_name)):
+            result.errors.append(f"{path}.{field_name}: required field is missing")
+
+    strategy_text = " ".join(text.lower() for _, text in iter_strings(value, path))
+    if "ff_loss" in strategy_text or "ff-loss" in strategy_text:
+        result.errors.append(f"{path}: strategy must not hard-code FF as a mandatory special case")
+
+    axes = value.get("decomposition_axes")
+    if isinstance(axes, list) and len(axes) < 2:
+        result.errors.append(f"{path}.decomposition_axes: should include multiple alternatives")
+
+
+def validate_causal_isolation_controls(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Require analog-control logic for causal-attribution gaps."""
+    card_text = " ".join(text.lower() for _, text in iter_strings(card, path))
+    if not any(marker in card_text for marker in CAUSAL_ATTRIBUTION_MARKERS):
+        return
+
+    analog_value = card.get("causal_isolation_controls")
+    controls_text = " ".join(text.lower() for _, text in iter_strings(card.get("controls"), path))
+    analog_text = " ".join(text.lower() for _, text in iter_strings(analog_value, path))
+    combined = f"{controls_text} {analog_text}"
+    if "analog" not in combined:
+        result.errors.append(
+            f"{path}.causal_isolation_controls: causal attribution gaps require "
+            "functional analog-control logic"
+        )
+        return
+
+    for marker in ANALOG_COVARIATE_MARKERS:
+        if marker not in combined:
+            result.errors.append(
+                f"{path}.causal_isolation_controls: analog controls must bound {marker}"
+            )
+
+    if "follow-up narrowing" not in combined and "cannot close" not in combined:
+        result.errors.append(
+            f"{path}.causal_isolation_controls: must state that multi-variable analogs "
+            "only narrow follow-up and cannot close the causal gap"
+        )
 
 
 def warn_readout_mappings(value: Any, result: ValidationResult, path: str) -> None:
@@ -581,6 +1075,17 @@ def warn_generic_phrases(value: Any, result: ValidationResult, path: str) -> Non
                 result.warnings.append(f"{item_path}: generic phrase `{phrase}`")
 
 
+def validate_no_operational_recipe(value: Any, result: ValidationResult, path: str) -> None:
+    """Reject operational wet-lab recipe details."""
+    for item_path, text in iter_strings(value, path):
+        lowered = text.lower()
+        if any(marker in lowered for marker in OPERATIONAL_RECIPE_MARKERS):
+            result.errors.append(f"{item_path}: operational wet-lab recipe detail is not allowed")
+            continue
+        if any(pattern.search(text) for pattern in OPERATIONAL_RECIPE_PATTERNS):
+            result.errors.append(f"{item_path}: operational wet-lab recipe detail is not allowed")
+
+
 def iter_strings(value: Any, path: str) -> list[tuple[str, str]]:
     """Collect all strings under ``value`` with diagnostic paths."""
     if isinstance(value, str):
@@ -605,6 +1110,35 @@ def first_present(mapping: dict[str, Any], keys: tuple[str, ...]) -> Any:
         if not is_missing(value):
             return value
     return None
+
+
+def contains_any(text: str, markers: tuple[str, ...]) -> bool:
+    """Return true when ``text`` contains any marker."""
+    return any(marker in text for marker in markers)
+
+
+def normalize_confidence(value: Any) -> str:
+    """Normalize confidence labels and simple numeric confidence values."""
+    text = stringify(value).strip().lower()
+    if text in {"high", "moderate", "medium", "low"}:
+        return "moderate" if text == "medium" else text
+    try:
+        numeric = float(text)
+    except ValueError:
+        return text
+    if numeric >= 0.8:
+        return "high"
+    if numeric >= 0.5:
+        return "moderate"
+    return "low"
+
+
+def mechanism_source_text(card: dict[str, Any], field_name: str) -> str:
+    """Return text from one mechanism-source-breakdown field."""
+    breakdown = card.get("mechanism_source_breakdown")
+    if not isinstance(breakdown, dict):
+        return ""
+    return " ".join(text.lower() for _, text in iter_strings(breakdown.get(field_name), field_name))
 
 
 def stringify(value: Any) -> str:
@@ -648,6 +1182,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "is absent; strict real-package mode should not use this."
         ),
     )
+    parser.add_argument(
+        "--retrieval-evidence",
+        type=Path,
+        help="Optional retrieval_evidence.yaml path to validate alongside experiments.yaml.",
+    )
     return parser.parse_args(argv)
 
 
@@ -660,6 +1199,8 @@ def main(argv: list[str] | None = None) -> int:
         smoke_test=args.smoke_test,
         allow_readme_fallback=args.allow_readme_fallback,
     )
+    if args.retrieval_evidence is not None:
+        result.extend(validate_retrieval_evidence_payload(load_yaml(args.retrieval_evidence)))
     print_result(result)
     return 1 if result.errors else 0
 

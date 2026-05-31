@@ -21,6 +21,16 @@ conclusions; the local SQLite database supplies same-family literature
 precedents and matched-control deltas; LKM supplies mechanism claims and
 reasoning chains; this skill synthesizes those inputs into ranked cards.
 
+This is a reusable skill-level policy. Do not write package-specific hotfixes,
+special cases, or hard-coded rules for one generated Gaia package. Package
+facts may lock context, but the conversion strategy must remain configurable
+and reusable for future perovskite Gaia packages.
+
+The primary deliverable is automated experiment-plan generation. SQLite
+retrieval, LKM retrieval, context extraction, and validation are intermediate
+steps whose purpose is to produce `EXPERIMENT_PLAN.md`, `experiments.yaml`,
+`retrieval_evidence.yaml`, and LKM diagnostics.
+
 Normal invocation point: after review and publish, before commit and push. This
 skill consumes finished publish artifacts. It is not part of the core
 formalization pass, and it must not rewrite `README.md` unless the user
@@ -35,6 +45,78 @@ values, treat them as literature metadata for matching and provenance only.
 Every output must state that implementation requires qualified lab supervision
 and institutional safety review.
 
+## Evidence Source Policy
+
+Treat evidence sources as role-separated:
+
+- Package-local Gaia evidence identifies target claims, affected conclusions,
+  current beliefs, mechanism chains already formalized in the package, missing
+  causal links, and the H-vs-Alt uncertainty to resolve.
+- LKM mechanism reasoning supplies auditable cross-paper/package mechanism
+  chains, competing explanations, causal-chain checks, and measurement-class
+  logic. LKM is not a black box: preserve provenance fields whenever returned,
+  including `source_package`, paper id, claim id, conclusion id, chain id,
+  title, score, and rerank score.
+- SQLite is for precedent discovery, stack/intervention matching, paired
+  delta background, rough comparability screening, readout candidates, and
+  risk flags only; it is not mechanism proof.
+
+Hard constraints:
+
+- SQLite rows must not be the primary evidence for mechanism attribution.
+- SQLite deltas must not close a mechanism gap by themselves.
+- SQLite tier1/tier2/tier3 evidence may affect priority, precedent strength,
+  readout candidates, comparability, and risk notes only.
+- If SQLite patterns conflict with Gaia/LKM reasoning, do not use SQLite to
+  overwrite the mechanism chain. Preserve the H-vs-Alt outcome matrix and add
+  `sqlite_lkm_conflicts`.
+- Every card and `EXPERIMENT_PLAN.md` must state: "SQLite is for precedent
+  discovery, stack/intervention matching, and paired delta background only; it
+  is not mechanism proof."
+- If LKM is unavailable or fails, emit `lkm_unavailable` diagnostics in
+  `lkm_role`, `lkm_evidence_summary`, `retrieval_evidence.yaml`, or the
+  relevant `lkm/*.json` artifact. Do not pretend retrieval succeeded. Cap
+  mechanism attribution confidence at `low` unless strong package-local Gaia
+  mechanism reasoning justifies at most `moderate` overall card confidence.
+
+For every experimental gap, first extract from Gaia package artifacts and LKM
+reasoning chains where available:
+
+- target claims
+- affected conclusions
+- hypothesis H
+- alternative Alt
+- mechanism chain
+- missing causal link
+- discriminating measurement/readout classes
+- conflicting mechanisms
+
+Use LKM `/search` for relevant claims, papers, and package discovery. Use LKM
+`/reasoning/search` for H-vs-Alt mechanism reasoning, measurement-class design,
+and causal-chain checks. Mark LKM chains as `same_package_lkm_chains` when they
+come from the source paper/package and `cross_package_lkm_chains` when they
+come from another paper/package. Never present cross-package reasoning as
+proof internal to the source paper.
+
+## Device-Orientation Policy
+
+Default `lab_preferred_device_architecture` is `inverted p-i-n`.
+
+Do not overwrite the package's locked device context. If the source package is
+n-i-p or otherwise differs from the lab preference:
+
+- preserve the original package facts in `source_device_context`
+- add a `lab_translation_context` for inverted p-i-n adaptation
+- add `portability_risks_for_p_i_n`
+- add `architecture_sensitive_readouts`
+- add `what_not_to_generalize`
+- state that p-i-n adaptation is translation, not source-paper proof
+
+If the package itself is p-i-n, keep the p-i-n source context and strengthen
+p-i-n matched controls, readout classes, and comparator logic. In all cases,
+plans stay design-level and must not include wet-lab recipes, solvents,
+concentrations, annealing parameters, or stepwise preparation instructions.
+
 ## Required Inputs
 
 - finished `README.md`
@@ -46,15 +128,22 @@ and institutional safety review.
 - optional `experiment_context.yaml`
 - local SQLite database:
   `/share/hwz/Perovskite_Database_Multiagents/literature_extraction/data_merger/merged_gpt5mini_data_with_chemical_data.db`
-- optional `LKM_ACCESS_KEY` environment variable for LKM API calls
+- optional LKM access key for LKM API calls. Accept `GAIA_LKM_ACCESS_KEY` or
+  `LKM_ACCESS_KEY` from the process environment, the package `.env`, the
+  output-directory `.env`, the current working directory `.env`, or the Gaia
+  repo `.env`. In this local workspace, the expected shared location is
+  `/personal/Gaia-v0.5/.env`. Never print, copy, commit, or persist the key
+  value in generated artifacts.
 
 Do not treat the database as optional. For every experimental gap, local SQLite
 retrieval must run before drafting the experiment card.
 
-Use LKM as a complementary evidence source. If `LKM_ACCESS_KEY` is available,
-perform LKM retrieval for every gap. If LKM is unavailable or fails, continue
-only after marking the LKM evidence gap in the card, lowering confidence, and
-explaining that the card is database-grounded but not LKM-validated.
+Use LKM as a complementary evidence source. If `GAIA_LKM_ACCESS_KEY` or
+`LKM_ACCESS_KEY` is available directly or through one of the supported `.env`
+files, perform LKM retrieval for every gap. If LKM is unavailable or fails,
+continue only after marking the LKM evidence gap in the card, lowering
+confidence, and explaining that the card is database-grounded but not
+LKM-validated.
 
 ## Preflight And Invocation Point
 
@@ -76,9 +165,12 @@ Strict mode is the default for real packages. Check:
 - `src/<package>/*.py` exists.
 - The SQLite database exists at
   `/share/hwz/Perovskite_Database_Multiagents/literature_extraction/data_merger/merged_gpt5mini_data_with_chemical_data.db`.
-- `LKM_ACCESS_KEY` is loaded when LKM retrieval is requested.
-- No output contains secrets, including `LKM_ACCESS_KEY`, `.env` values, or raw
-  credential headers.
+- `GAIA_LKM_ACCESS_KEY` or `LKM_ACCESS_KEY` is available when LKM retrieval is
+  requested. Check process env and supported `.env` paths, especially
+  `/personal/Gaia-v0.5/.env` in this workspace.
+- No output contains secrets, including access-key values, `.env` values, or
+  raw credential headers. It is acceptable to record the credential source
+  path/variable name, but never the value.
 
 Strict-mode stop rules:
 
@@ -143,6 +235,7 @@ intervention_location:
 modulator_material_or_family:
 target_metrics:
 available_readouts:
+lab_preferred_device_architecture: inverted p-i-n
 ```
 
 The loader may accept obvious human aliases at input time, such as
@@ -160,7 +253,9 @@ a context preflight error rather than guessing.
 - `EXPERIMENT_PLAN.md`: human-readable ranked roadmap
 - `experiments.yaml`: machine-readable experiment cards
 - `retrieval_evidence.yaml`: database query summaries, row counts, tier counts,
-  parse coverage, LKM retrieval status, and conflicts
+  parse coverage, successful/failed endpoints per gap, same/cross-package LKM
+  chain summaries, SQLite/LKM conflicts, architecture translation warnings, and
+  parse coverage warnings
 - `context_missing_preflight.yaml`: written when strict-mode context is missing
   and card generation stops
 - `lkm/*.json`: LKM retrieval artifacts when LKM retrieval is used and the
@@ -188,6 +283,8 @@ a context preflight error rather than guessing.
    and closure criterion. In real-package mode, do not infer placeholders for
    required package/device/intervention fields. If those fields remain missing,
    emit `context_missing_preflight` and stop before card generation.
+   Extract package-local Gaia mechanism evidence first, including mechanism
+   chains, missing causal links, conflicting mechanisms, and measurement logic.
 
 3. Load the relevant references for this skill:
    - Database retrieval: [references/database-retrieval.md](references/database-retrieval.md)
@@ -207,14 +304,18 @@ a context preflight error rather than guessing.
    parseable performance/stability metrics. Compute parse coverage and
    normalized deltas where possible. Record tier1/tier2/tier3/rejected counts
    and top precedent rows with `similarity_score`, `why_comparable`,
-   `why_limited`, and parsed deltas.
+   `why_limited`, and parsed deltas. Record SQLite role as precedent/delta
+   background only; never use it as mechanism proof.
 
 6. Query LKM for every gap when access is available.
    Retrieve hybrid claim matches, reasoning-chain matches, claim reasoning
    chains, paper graphs, and hydrated variables when returned IDs make that
    useful. Summarize supported mechanisms, competing explanations, premises,
    discriminating observations, provenance papers, and agreement or conflict
-   with database patterns.
+   with database patterns. Separate same-package from cross-package reasoning
+   and retain provenance fields in `lkm/*.json`, `retrieval_evidence.yaml`, and
+   card summaries. If LKM fails, emit `lkm_unavailable` diagnostics and lower
+   confidence.
 
 7. Draft one complete experiment card per experimental gap.
    Do not emit vague suggestions such as "do more characterization" or "study
@@ -223,7 +324,11 @@ a context preflight error rather than guessing.
    required, which readouts are primary, how each primary readout maps to a
    specific uncertainty or alternative explanation, and how the result would
    update Gaia interpretation. Include an `outcome_matrix` with
-   `supports_H`, `supports_Alt`, and `mixed_or_unresolved`.
+   `supports_H`, `supports_Alt`, and `mixed_or_unresolved`. Add a generic
+   `gap_resolution_strategy` for every card, using extensible decomposition
+   axes and decision rules rather than hard-coded metric-specific modules. Add
+   analog-control logic for causal attribution or multifunctional-passivator
+   gaps.
 
 8. Rank cards with the 0-100 priority formula in
    `experiment-card-schema.md`. Sort `experiments.yaml` and the roadmap by
@@ -236,10 +341,23 @@ a context preflight error rather than guessing.
    `context_missing_preflight.yaml` instead of cards. Include safety and
    feasibility boundaries in both human-readable and YAML outputs.
 
-10. Validate `experiments.yaml` before handoff:
+10. Use the automation entrypoint when a package has `ANALYSIS.md` and either
+   recovered context or `experiment_context.yaml`:
 
    ```bash
-   uv run python scripts/validate_experiment_cards.py experiments.yaml
+   uv run python scripts/generate_experiment_plan.py . --output-dir .
+   ```
+
+   Trial runs that intentionally skip live LKM retrieval must use `--skip-lkm`
+   and will emit `lkm_unavailable` diagnostics with lowered confidence. Strict
+   real-package mode stops when SQLite is missing; `--allow-missing-sqlite` is
+   for smoke tests or exploratory dry runs only.
+
+11. Validate `experiments.yaml` before handoff:
+
+   ```bash
+   uv run python scripts/validate_experiment_cards.py experiments.yaml \
+     --retrieval-evidence retrieval_evidence.yaml
    ```
 
 ## Hard Gates
@@ -259,3 +377,7 @@ a context preflight error rather than guessing.
   precedent strength, LKM support, discriminating power, and feasibility.
 - SQLite performance deltas are precedent evidence only. Do not claim they
   prove a mechanism without LKM or package-local reasoning evidence.
+- No cross-package LKM chain may be represented as same-package/source-paper
+  proof.
+- No package locked context may be overwritten by the p-i-n lab translation.
+- No single aggregate metric improvement may be treated as mechanism proof.

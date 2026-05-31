@@ -33,14 +33,14 @@ Decision logic:
 - Alt gains support when JV gains occur without recombination-readout changes,
   or when contact/morphology controls explain the effect.
 
-## FF / Transport / Contact
+## Aggregate Performance / Transport / Contact
 
 Primary readouts:
 
 - Rs/Rsh extraction from matched JV analysis.
 - Suns-Voc or pseudo-JV comparison to separate recombination from transport
   losses.
-- Intensity-dependent JV/FF.
+- Intensity-dependent JV or target-metric response.
 - EIS features tied to transport/contact limitations.
 - Contact-only or selective-contact comparison when feasible.
 
@@ -56,14 +56,22 @@ Required controls:
 - Matched baseline with and without intervention.
 - Same absorber and device area class.
 - Selective-contact controls or contact-layer-only comparison.
-- Scan-condition controls if hysteresis may affect FF.
+- Scan-condition controls if hysteresis may affect the target metric.
+- Generic aggregate-metric decomposition through `gap_resolution_strategy`,
+  covering the branches relevant to the specific claim rather than requiring a
+  fixed metric-specific module.
 
 Decision logic:
 
-- H gains support when FF improvement tracks lower contact/transport loss while
-  recombination-only indicators do not fully explain the gain.
-- Alt gains support when FF improvement disappears under pseudo-JV/Suns-Voc
-  comparison or is explained by recombination, shunt, or scan artifacts.
+- H gains support when the target metric improvement tracks the declared
+  contact/transport branch while recombination-only indicators do not fully
+  explain the gain.
+- Alt gains support when the target metric improvement disappears under the
+  discriminating comparison or is explained by recombination, shunt, morphology,
+  or scan artifacts.
+- Aggregate metric improvement alone is not mechanism proof. If branch
+  decomposition cannot separate the losses, keep the result
+  `mixed_or_unresolved`.
 
 ## Ion Migration / Hysteresis
 
@@ -153,8 +161,8 @@ Decision logic:
 
 - H gains support when energy-level/work-function changes align with reduced
   contact loss and recombination/morphology controls do not explain the gain.
-- Alt gains support when passivation or morphology readouts explain Voc/FF
-  improvements without a decisive energetic shift.
+- Alt gains support when passivation or morphology readouts explain the target
+  metric improvements without a decisive energetic shift.
 
 ## Crystallization / Morphology
 
@@ -185,14 +193,48 @@ Decision logic:
 - Alt gains support when performance changes occur without morphology change or
   are better explained by passivation/contact readouts.
 
+## Causal Isolation / Functional Analog Controls
+
+Use this when a gap involves sole-cause attribution, passivation not isolated
+from morphology/contact alternatives, hydrophobicity alternatives, or
+multifunctional passivators.
+
+Primary readouts:
+
+- Functional analog control class that preserves the intended comparison while
+  changing one functional feature at a time where possible.
+- Morphology and crystallinity bounding readouts.
+- Hydrophobicity or barrier-effect comparison when stability or moisture
+  tolerance is part of the claim.
+- Contact energetics comparison when interface energetics could explain the
+  effect.
+- Recombination/trap-sensitive readouts to separate passivation from
+  non-passivation alternatives.
+
+Required controls:
+
+- Matched no-modulator baseline.
+- Functional analog class, described at design level only.
+- Covariate bounds for morphology, crystallinity, hydrophobicity, contact
+  energetics, and recombination/trap-sensitive readouts.
+
+Decision logic:
+
+- H gains support only when the proposed mechanism moves while bounded
+  covariates do not explain the effect.
+- Alt gains support when bounded covariates move in a way that explains the
+  performance or stability change.
+- If analog controls also change several variables, the result supports
+  follow-up narrowing only and does not close the causal gap.
+
 ## Cross-Gap Bundling
 
 Prefer bundled experiment classes when they preserve per-gap traceability:
 
 - Passivation plus energy alignment: combine recombination readouts with
   work-function/contact-selectivity evidence.
-- FF/contact plus hysteresis: combine intensity-dependent JV, scan-rate JV,
-  and EIS under controlled scan/preconditioning states.
+- Aggregate performance/contact plus hysteresis: combine intensity-dependent
+  JV, scan-rate JV, and EIS under controlled scan/preconditioning states.
 - Stability plus morphology: combine matched stress retention with pre/post
   structural and optical degradation markers.
 
