@@ -35,6 +35,7 @@ REQUIRED_FIELDS = (
     "mechanism_source_breakdown",
     "same_package_lkm_chains",
     "cross_package_lkm_chains",
+    "unknown_package_lkm_chains",
     "sqlite_lkm_conflicts",
     "mechanism_attribution_limitations",
     "gap_resolution_strategy",
@@ -78,7 +79,9 @@ DEVICE_CONTEXT_FIELDS = (
 
 LAB_TRANSLATION_CONTEXT_FIELDS = (
     "lab_preferred_device_architecture",
+    "translation_status",
     "translation_note",
+    "translation_targets",
 )
 
 MECHANISM_SOURCE_FIELDS = (
@@ -161,9 +164,20 @@ LKM_PROVENANCE_FIELDS = (
     "claim_id",
     "conclusion_id",
     "chain_id",
+    "local_id",
+    "doi",
     "title",
     "score",
     "rerank_score",
+)
+FORBIDDEN_PLACEHOLDER_STRINGS = (
+    "The target transport/contact or performance-limiting branch explains the claim.",
+    "A competing branch or uncontrolled covariate explains the aggregate metric.",
+    "direct H-vs-Alt discriminating readout class",
+    "mechanism-relevant condition",
+    "matched control class",
+    "A primary readout pattern separates H from Alt under matched controls.",
+    "H becomes the favored mechanism.",
 )
 READOUT_MAPPING_KEYS = (
     "maps_to_uncertainty",
@@ -343,6 +357,7 @@ def validate_retrieval_evidence_payload(payload: Any) -> ValidationResult:
             "failed_endpoints",
             "same_package_lkm_chains",
             "cross_package_lkm_chains",
+            "unknown_package_lkm_chains",
         ):
             if field_name not in gap or (
                 field_name == "gap_id" and is_missing(gap.get(field_name))
@@ -445,6 +460,12 @@ def validate_card(
         result=result,
         path=path_join(card_path, "cross_package_lkm_chains"),
     )
+    validate_lkm_chain_scope(
+        card.get("unknown_package_lkm_chains"),
+        expected_scope="unknown_package_scope",
+        result=result,
+        path=path_join(card_path, "unknown_package_lkm_chains"),
+    )
     validate_lkm_failure_confidence(card, result, card_path)
     validate_sqlite_mechanism_limits(card, result, card_path)
     validate_outcome_matrix(
@@ -475,6 +496,7 @@ def validate_card(
     warn_vague_success_criterion(card.get("success_criterion_for_closing_gap"), result, card_path)
     warn_unknown_composition_confidence(card, result, card_path)
     warn_generic_phrases(card, result, card_path)
+    validate_forbidden_placeholders(card, result, card_path)
     validate_no_operational_recipe(card, result, card_path)
 
     return result
@@ -484,7 +506,11 @@ def validate_required_fields(
     card: dict[str, Any], required: list[str], result: ValidationResult, card_path: str
 ) -> None:
     """Validate card-level required fields with transitional aliases."""
-    presence_only_fields = {"same_package_lkm_chains", "cross_package_lkm_chains"}
+    presence_only_fields = {
+        "same_package_lkm_chains",
+        "cross_package_lkm_chains",
+        "unknown_package_lkm_chains",
+    }
     for field_name in required:
         if (
             field_name == "source_device_context"
@@ -559,6 +585,9 @@ def validate_device_orientation_policy(
             "portability_risks_for_p_i_n",
             "architecture_sensitive_readouts",
             "what_not_to_generalize",
+            "p_i_n_specific_controls",
+            "p_i_n_specific_readouts",
+            "p_i_n_specific_risks",
         ):
             if is_missing(card.get(field_name)):
                 result.errors.append(
@@ -569,6 +598,24 @@ def validate_device_orientation_policy(
             result.errors.append(
                 f"{path}.lab_translation_context: must include inverted p-i-n adaptation"
             )
+        pin_design_text = " ".join(
+            text.lower()
+            for _, text in iter_strings(
+                {
+                    "p_i_n_specific_controls": card.get("p_i_n_specific_controls"),
+                    "p_i_n_specific_readouts": card.get("p_i_n_specific_readouts"),
+                    "p_i_n_specific_risks": card.get("p_i_n_specific_risks"),
+                    "what_not_to_generalize": card.get("what_not_to_generalize"),
+                },
+                path,
+            )
+        )
+        for marker in ("baseline", "readout", "risk", "not as p-i-n proof"):
+            if marker not in pin_design_text:
+                result.errors.append(
+                    f"{path}.p_i_n_specific_controls: p-i-n translation must include "
+                    f"{marker} design content"
+                )
 
     has_pin_lab_context = contains_any(lab_text, PIN_MARKERS)
     has_pin_matched_controls = contains_any(controls_text, ("matched", "p-i-n", "same stack"))
@@ -666,7 +713,7 @@ def validate_mechanism_source_breakdown(value: Any, result: ValidationResult, pa
         )
 
 
-def validate_lkm_chain_scope(
+def validate_lkm_chain_scope(  # noqa: C901
     value: Any, *, expected_scope: str, result: ValidationResult, path: str
 ) -> None:
     """Validate same-package and cross-package LKM chain provenance."""
@@ -691,11 +738,18 @@ def validate_lkm_chain_scope(
                 result.errors.append(f"{chain_path}: cross-package chain mislabeled as {scope}")
             if cross_flag is False:
                 result.errors.append(f"{chain_path}.cross_package: must not be false")
-        else:
+        elif expected_scope == "same_package":
             if scope and "same" not in scope:
                 result.errors.append(f"{chain_path}: same-package chain mislabeled as {scope}")
             if cross_flag is True:
                 result.errors.append(f"{chain_path}.cross_package: must not be true")
+        else:
+            if scope and "unknown" not in scope:
+                result.errors.append(f"{chain_path}: unknown-scope chain mislabeled as {scope}")
+            if cross_flag is True:
+                result.errors.append(
+                    f"{chain_path}.cross_package: unknown-scope chains must not be true"
+                )
 
         if all(is_missing(chain.get(field_name)) for field_name in LKM_PROVENANCE_FIELDS):
             result.errors.append(
@@ -1073,6 +1127,14 @@ def warn_generic_phrases(value: Any, result: ValidationResult, path: str) -> Non
         for phrase in GENERIC_PHRASES:
             if phrase in lowered:
                 result.warnings.append(f"{item_path}: generic phrase `{phrase}`")
+
+
+def validate_forbidden_placeholders(value: Any, result: ValidationResult, path: str) -> None:
+    """Reject known placeholder sentences from final outputs."""
+    for item_path, text in iter_strings(value, path):
+        for placeholder in FORBIDDEN_PLACEHOLDER_STRINGS:
+            if placeholder in text:
+                result.errors.append(f"{item_path}: forbidden placeholder text leaked")
 
 
 def validate_no_operational_recipe(value: Any, result: ValidationResult, path: str) -> None:

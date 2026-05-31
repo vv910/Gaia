@@ -98,6 +98,48 @@ come from the source paper/package and `cross_package_lkm_chains` when they
 come from another paper/package. Never present cross-package reasoning as
 proof internal to the source paper.
 
+## Gap-Family Template Policy
+
+Do not emit generic H-vs-Alt placeholder cards when the gap maps to a
+supported experimental family. Classify each Evidence Gap using the gap text,
+target claims, affected conclusions, Gaia artifact context, and LKM reasoning
+terms. Then dispatch to a family-specific card template.
+
+Supported families:
+
+- `ff_loss_budget`: photovoltaic metric budget. The generic generator may
+  only call the photovoltaic metric module's `build_ff_loss_budget_card()`
+  when the classifier returns this family. Detailed FF-loss channels belong in
+  that module, not in generic perovskite planning logic.
+- `extraction_timing`: transient extraction, carrier collection, extraction
+  timing, and collection-dynamics gaps.
+- `ion_migration_hysteresis`: ion migration, hysteresis, scan-direction, and
+  bias-history gaps.
+- `causal_isolation_analog`: sole-cause, passivation-not-isolated,
+  multifunctional intervention, morphology, crystallinity, hydrophobicity, or
+  analog-control gaps.
+- `device_model_link`: theoretical device-model gaps linking trap or
+  recombination proxies to device metrics under bounded contact/transport
+  losses.
+
+If no supported family matches, emit
+`template_resolution_status: unresolved_generic_fallback`, cap priority at
+70, lower confidence, and state that concrete readouts/controls require a new
+or selected domain template. Do not allow these placeholder sentences in final
+`experiments.yaml` or `EXPERIMENT_PLAN.md`:
+
+- "The target transport/contact or performance-limiting branch explains the claim."
+- "A competing branch or uncontrolled covariate explains the aggregate metric."
+- "direct H-vs-Alt discriminating readout class"
+- "mechanism-relevant condition"
+- "matched control class"
+- "A primary readout pattern separates H from Alt under matched controls."
+- "H becomes the favored mechanism."
+
+Priority is family-sensitive. FF-loss budget and causal-isolation cards should
+rank above generic fallbacks; same-package LKM support may raise relevance,
+but SQLite support must not raise mechanism confidence.
+
 ## Device-Orientation Policy
 
 Default `lab_preferred_device_architecture` is `inverted p-i-n`.
@@ -116,6 +158,39 @@ If the package itself is p-i-n, keep the p-i-n source context and strengthen
 p-i-n matched controls, readout classes, and comparator logic. In all cases,
 plans stay design-level and must not include wet-lab recipes, solvents,
 concentrations, annealing parameters, or stepwise preparation instructions.
+
+For n-i-p or otherwise non-p-i-n source packages, `lab_translation_context`
+must include:
+
+- `translation_status: source_context_preserved_with_p_i_n_translation`
+- translation targets that preserve local absorber/passivator chemistry while
+  re-evaluating contact-selective extraction and separating passivation-local
+  effects from architecture-specific contact effects
+- `p_i_n_specific_controls`, `p_i_n_specific_readouts`, and
+  `p_i_n_specific_risks`
+- `what_not_to_generalize`, including that p-i-n translation is not
+  source-paper proof
+
+For p-i-n source packages, use
+`translation_status: source_context_already_p_i_n` and strengthen p-i-n
+matched controls/readouts without adding an architecture-mismatch warning.
+
+## SQLite Precedent Quality Gate
+
+SQLite rows are screened before they can appear in `top_precedent_rows`.
+Reject rows that are non-PSC, dye-sensitized, unknown-absorber without PSC
+context, or below `similarity_score < 0.65`. A usable top precedent must match
+at least two comparability axes and include at least one substantive
+composition, intervention-location, or mechanism-family match rather than
+architecture plus aggregate metric alone.
+
+If no qualified precedent remains, emit:
+
+- `top_precedent_rows: []`
+- `sqlite_precedent_quality: weak_or_none`
+- `parse_coverage_warning: true`
+
+Do not force low-quality or off-domain SQLite rows into the plan.
 
 ## Required Inputs
 

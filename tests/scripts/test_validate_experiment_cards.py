@@ -132,6 +132,7 @@ def _valid_card() -> dict[str, object]:
                 "cross_package": True,
             }
         ],
+        "unknown_package_lkm_chains": [],
         "sqlite_lkm_conflicts": [
             "No direct conflict; SQLite deltas are treated only as background."
         ],
@@ -174,10 +175,19 @@ def _valid_card() -> dict[str, object]:
         },
         "lab_translation_context": {
             "lab_preferred_device_architecture": "inverted p-i-n",
+            "translation_status": "source_context_preserved_with_p_i_n_translation",
             "translation_note": (
                 "Translate the n-i-p source mechanism into a p-i-n adaptation; "
                 "this is not source-paper proof."
             ),
+            "translation_targets": [
+                (
+                    "preserve absorber/passivator chemical mechanism if local to the "
+                    "perovskite surface"
+                ),
+                "re-evaluate contact-selective extraction in p-i-n",
+                "separate local passivation from architecture-specific contact effects",
+            ],
             "htl_etl_contact_interpretation": (
                 "Re-map ETL-side contact language to p-i-n selective-contact comparisons."
             ),
@@ -188,7 +198,20 @@ def _valid_card() -> dict[str, object]:
         ],
         "architecture_sensitive_readouts": ["Suns-Voc", "contact-selectivity comparison"],
         "what_not_to_generalize": [
-            "Do not generalize n-i-p ETL contact proof as p-i-n HTL-side mechanism proof."
+            "Do not generalize n-i-p ETL contact proof as p-i-n HTL-side mechanism proof.",
+            "Use source n-i-p reference only as provenance, not as p-i-n proof.",
+        ],
+        "p_i_n_specific_controls": [
+            "p-i-n baseline without intervention",
+            "p-i-n intervention comparison with matched absorber family",
+            "source n-i-p reference only as provenance, not as p-i-n proof",
+        ],
+        "p_i_n_specific_readouts": [
+            "architecture-matched readout",
+            "contact-selective extraction or barrier diagnostic class",
+        ],
+        "p_i_n_specific_risks": [
+            "source-stack contact mechanism may not port directly as a p-i-n risk"
         ],
         "recommended_experiment_class": "Design-level causal-discrimination campaign",
         "variables_to_vary": ["interface location", "contact-layer comparison"],
@@ -571,6 +594,7 @@ def test_retrieval_evidence_requires_endpoint_diagnostics() -> None:
                 "failed_endpoints": ["/search timeout"],
                 "same_package_lkm_chains": [{"chain_id": "lkm_chain_01"}],
                 "cross_package_lkm_chains": [],
+                "unknown_package_lkm_chains": [],
                 "parse_coverage": {"ff": "0/2"},
             }
         ]
