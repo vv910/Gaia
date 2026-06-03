@@ -287,8 +287,8 @@ def test_generator_splits_evidence_gap_table_rows(tmp_path: Path, monkeypatch) -
         "experimental_gap_02",
     ]
     assert "transient extraction timing" in cards[0]["original_evidence_gap_text"]
-    assert cards[0]["template_id"] == "EXTRACTION_TIMING_TEMPLATE"
-    assert cards[0]["gap_family"] == "extraction_timing"
+    assert cards[0]["template_id"] == "CHARGE_EXTRACTION_COLLECTION_TEMPLATE"
+    assert cards[0]["gap_family"] == "charge_extraction_collection"
     assert "causal attribution" in cards[1]["gap_type"]
 
 
@@ -395,29 +395,45 @@ def test_gap_family_templates_are_domain_specific(tmp_path: Path, monkeypatch) -
         "transport_or_contact_barrier",
         "hysteresis_or_scan_history_contribution",
     }
-    assert by_family["extraction_timing"]["template_id"] == "EXTRACTION_TIMING_TEMPLATE"
-    extraction_readouts = str(by_family["extraction_timing"]["primary_readouts"]).lower()
+    assert (
+        by_family["charge_extraction_collection"]["template_id"]
+        == "CHARGE_EXTRACTION_COLLECTION_TEMPLATE"
+    )
+    extraction_readouts = str(by_family["charge_extraction_collection"]["primary_readouts"]).lower()
     assert "carrier collection timing" in extraction_readouts
     assert (
         by_family["ion_migration_hysteresis"]["template_id"] == "ION_MIGRATION_HYSTERESIS_TEMPLATE"
     )
     assert "bias-history" in str(by_family["ion_migration_hysteresis"]["primary_readouts"]).lower()
-    assert by_family["causal_isolation_analog"]["template_id"] == "CAUSAL_ISOLATION_ANALOG_TEMPLATE"
-    assert "bounded_covariates" in by_family["causal_isolation_analog"]["causal_isolation_controls"]
-    assert by_family["device_model_link"]["template_id"] == "DEVICE_MODEL_LINK_TEMPLATE"
-    assert "model_inputs" in by_family["device_model_link"]
-    assert by_family["generic_fallback"]["template_resolution_status"] == (
-        "unresolved_generic_fallback"
+    assert (
+        by_family["functional_analog_causal_isolation"]["template_id"]
+        == "FUNCTIONAL_ANALOG_CAUSAL_ISOLATION_TEMPLATE"
+    )
+    assert (
+        "bounded_covariates"
+        in by_family["functional_analog_causal_isolation"]["causal_isolation_controls"]
+    )
+    assert (
+        by_family["model_mapping_quantification"]["template_id"]
+        == "MODEL_MAPPING_QUANTIFICATION_TEMPLATE"
+    )
+    assert "model_inputs" in by_family["model_mapping_quantification"]
+    assert (
+        by_family["stability_degradation_pathway"]["template_id"]
+        == "STABILITY_DEGRADATION_PATHWAY_TEMPLATE"
     )
 
     for family, card in by_family.items():
         if family != "ff_loss_budget":
             assert "loss_channel_budget" not in card
-    assert by_family["ff_loss_budget"]["priority"] > by_family["generic_fallback"]["priority"]
     assert (
-        by_family["causal_isolation_analog"]["priority"] > by_family["generic_fallback"]["priority"]
+        by_family["ff_loss_budget"]["priority"]
+        > by_family["stability_degradation_pathway"]["priority"]
     )
-    assert by_family["generic_fallback"]["priority"] <= 70
+    assert (
+        by_family["functional_analog_causal_isolation"]["priority"]
+        > by_family["stability_degradation_pathway"]["priority"]
+    )
 
     rendered_yaml = (output / "experiments.yaml").read_text(encoding="utf-8")
     rendered_md = (output / "EXPERIMENT_PLAN.md").read_text(encoding="utf-8")
@@ -445,6 +461,8 @@ def test_lkm_scope_resolver_uses_doi_and_keeps_unknown_scope() -> None:
                     },
                     {
                         "source_package": "other_perovskite_gaia",
+                        "doi": "10.0000/other",
+                        "local_id": "other_perovskite_gaia::claim",
                         "chain_id": "cross_chain",
                         "claim_id": "cross_claim",
                         "title": "Analogy paper",
@@ -465,7 +483,7 @@ def test_lkm_scope_resolver_uses_doi_and_keeps_unknown_scope() -> None:
     assert cross[0]["chain_id"] == "cross_chain"
     assert cross[0]["reasoning_scope"] == "cross_package"
     assert unknown[0]["chain_id"] == "unknown_chain"
-    assert unknown[0]["reasoning_scope"] == "unknown_package_scope"
+    assert unknown[0]["reasoning_scope"] == "ambiguous_package_scope"
 
 
 def test_sqlite_filters_low_quality_precedents(tmp_path: Path, monkeypatch) -> None:
@@ -483,10 +501,13 @@ def test_sqlite_filters_low_quality_precedents(tmp_path: Path, monkeypatch) -> N
 
     assert exit_code == 0
     experiments = _load_yaml(output / "experiments.yaml")
-    rows = experiments["experiments"][0]["database_precedents"]["top_precedent_rows"]
-    assert [row["doi"] for row in rows] == ["10.0000/good"]
+    precedents = experiments["experiments"][0]["database_precedents"]
+    rows = precedents["top_precedent_rows"]
+    demoted = precedents["demoted_precedent_rows"]
+    assert rows == []
+    assert "10.0000/good" in [row["doi"] for row in demoted]
     assert "Ba2+" not in str(rows)
-    assert "dye" not in str(rows).lower()
+    assert "dye" not in str(rows + demoted).lower()
 
 
 def test_weak_sqlite_does_not_block_domain_template(tmp_path: Path, monkeypatch) -> None:
@@ -536,9 +557,9 @@ def test_weak_sqlite_does_not_block_domain_template(tmp_path: Path, monkeypatch)
     assert exit_code == 0
     experiments = _load_yaml(output / "experiments.yaml")
     card = experiments["experiments"][0]
-    assert card["template_id"] == "EXTRACTION_TIMING_TEMPLATE"
+    assert card["template_id"] == "CHARGE_EXTRACTION_COLLECTION_TEMPLATE"
     assert card["database_precedents"]["top_precedent_rows"] == []
-    assert card["database_precedents"]["sqlite_precedent_quality"] == "weak_or_none"
+    assert card["database_precedents"]["sqlite_precedent_quality"] == "unusable"
     retrieval = _load_yaml(output / "retrieval_evidence.yaml")
     assert retrieval["gaps"][0]["parse_coverage_warning"] is True
 
@@ -566,3 +587,301 @@ def test_nip_translation_block_contains_design_content(tmp_path: Path, monkeypat
     assert "not as p-i-n proof" in str(card["p_i_n_specific_controls"]).lower()
     assert "contact-selective" in str(card["p_i_n_specific_readouts"]).lower()
     assert "portability risk" in str(card["p_i_n_specific_risks"]).lower()
+
+
+def test_ff_matcher_ignores_efficiency_different_effective_diffusion() -> None:
+    """FF archetype should require explicit FF/J-V loss language."""
+    non_ff_texts = [
+        "Efficiency improves but the mechanism remains unresolved.",
+        "Different interface additives change device behavior.",
+        "Effective passivation evidence is incomplete.",
+        "Diffusion length is reported without direct collection mapping.",
+    ]
+
+    for text in non_ff_texts:
+        assert generator.classify_gap_stage_a(text).card_archetype != "ff_loss_budget"
+
+
+def test_explicit_ff_terms_route_to_ff_loss_budget() -> None:
+    """Standalone FF and resistance/loss terms route to the FF module."""
+    ff_texts = [
+        "FF loss branch is unresolved.",
+        "fill factor increase alone is not mechanism proof.",
+        "series resistance and Rsh ambiguity remains.",
+        "J-V loss decomposition is missing.",
+    ]
+
+    for text in ff_texts:
+        assert generator.classify_gap_stage_a(text).card_archetype == "ff_loss_budget"
+
+
+def test_non_ff_mechanism_axes_route_to_non_ff_archetypes() -> None:
+    """Representative non-FF gaps should select non-FF archetypes."""
+    cases = {
+        "Voc deficit and QFLS recombination loss mapping is missing.": (
+            "recombination_loss_mapping"
+        ),
+        "Work function and band alignment evidence is not separated from contact barrier.": (
+            "contact_energetics_interface_selectivity"
+        ),
+        "Morphology, crystallinity, and phase purity causality are unresolved.": (
+            "morphology_phase_causality"
+        ),
+        "Operational stability under moisture and phase stability pathways are unresolved.": (
+            "stability_degradation_pathway"
+        ),
+    }
+
+    for text, expected in cases.items():
+        assert generator.classify_gap_stage_a(text).card_archetype == expected
+
+
+def test_rendered_plan_is_sorted_by_priority() -> None:
+    """Markdown roadmap should use priority order, not gap-id order."""
+    base = {
+        "source_package": "pkg",
+        "gap_type": "gap",
+        "gap_type_specific_title": "title",
+        "gap_family": "generic_uncertainty",
+        "card_archetype": "generic_uncertainty",
+        "template_id": "GENERIC_UNCERTAINTY_TEMPLATE",
+        "template_resolution_status": "unresolved_generic_fallback",
+        "hypothesis_H": "Specific H",
+        "alternative_Alt": "Specific Alt",
+        "discriminating_observation": "Specific observation",
+        "primary_readouts": [{"name": "specific readout"}],
+        "lab_translation_context": {"translation_note": "p-i-n note"},
+        "sqlite_role": (
+            "SQLite is for precedent discovery, stack/intervention matching, and paired "
+            "delta background only; it is not mechanism proof."
+        ),
+        "sqlite_precedent_quality": "unusable",
+        "sqlite_quality_warning": True,
+        "lkm_scope_summary": {
+            "same_package": 0,
+            "cross_package": 0,
+            "ambiguous_package_scope": 0,
+        },
+        "confidence": "low",
+        "mechanism_attribution_limitations": "Specific limitation",
+    }
+    low = {**base, "gap_id": "experimental_gap_01", "priority": 50}
+    high = {**base, "gap_id": "experimental_gap_02", "priority": 95}
+
+    markdown = generator.render_plan([low, high])
+
+    assert markdown.index("[95] experimental_gap_02") < markdown.index("[50] experimental_gap_01")
+
+
+def test_aggregate_corpus_mode_does_not_require_single_locked_stack(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Aggregate packages should not be forced into one locked device context."""
+    package = tmp_path / "pvsk-gaia"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    package.mkdir()
+    (package / "ANALYSIS.md").write_text(
+        "# Analysis\n\nEvidence Gap: Stability degradation pathway is unresolved.",
+        encoding="utf-8",
+    )
+    (package / "experiment_context.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "source_package": "pvsk-gaia",
+                "package_mode": "aggregate_corpus",
+                "corpus_level_distribution": "mixed PSC corpus with n-i-p and p-i-n families",
+                "lab_preferred_device_architecture": "inverted p-i-n",
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    experiments = _load_yaml(output / "experiments.yaml")
+    card = experiments["experiments"][0]
+    assert card["package_mode"] == "aggregate_corpus"
+    assert card["source_device_context"]["package_mode"] == "aggregate_corpus"
+    assert "solar_cell_structure" not in card["source_device_context"]
+    retrieval = _load_yaml(output / "retrieval_evidence.yaml")
+    assert retrieval["preflight"]["package_mode"] == "aggregate_corpus"
+
+
+def test_unknown_gap_uses_open_world_design_mode(tmp_path: Path, monkeypatch) -> None:
+    """Unknown mechanism gaps should not collapse into an empty generic card."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package_with_gap_table(
+        package,
+        [("Unregistered interfacial memory effect lacks a causal test.", "novel_claim")],
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    assert card["classification_mode"] == "open_world_design"
+    assert card["template_id"] == "OPEN_WORLD_DESIGN_TEMPLATE"
+    assert card["hypothesis_H"]
+    assert card["alternative_Alt"]
+    assert card["primary_readouts"]
+    assert card["controls"]
+    assert card["non_closure_criteria"]
+    assert card["emergent_gap_family"]["review_required"] is True
+    assert card["design_motif_evidence"]["retrieved_from_design_memory"]
+
+
+def test_conflicting_archetypes_use_mixed_archetype_mode(tmp_path: Path, monkeypatch) -> None:
+    """Multiple known families should be motif-composed instead of hard-gated."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package_with_gap_table(
+        package,
+        [
+            (
+                "Voc deficit recombination evidence conflicts with morphology "
+                "crystallinity causality.",
+                "mixed_claim",
+            )
+        ],
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    assert card["classification_mode"] == "mixed_archetype"
+    assert len(card["gap_classifier_output"]["matched_archetypes"]) > 1
+    assert "multiple_archetype_matches" in card["archetype_selection"]["conflict_reason"]
+    motif_sources = [
+        motif["source_id"]
+        for motif in card["design_motif_evidence"]["retrieved_from_design_memory"]
+    ]
+    assert any("recombination_loss_mapping" in source for source in motif_sources)
+    assert any("morphology_phase_causality" in source for source in motif_sources)
+
+
+def test_lkm_design_reasoning_summary_populates_design_fields() -> None:
+    """Mock LKM experiment-design payload should populate design reasoning."""
+    payload = {
+        "results": [
+            {
+                "source_package": "example_perovskite_gaia",
+                "chain_id": "design_chain",
+                "title": (
+                    "Use readout measurement controls baseline comparator to separate "
+                    "alternative covariate artifact."
+                ),
+            }
+        ]
+    }
+
+    summary = generator.summarize_lkm_design_reasoning(
+        payload,
+        "experiment design query",
+        {"source_package": "example_perovskite_gaia"},
+    )
+
+    assert summary["endpoint"] == "/reasoning/search"
+    assert summary["readout_classes"]
+    assert summary["controls"]
+    assert summary["confounders"]
+    assert summary["same_package"][0]["reasoning_scope"] == "same_package"
+
+
+def test_mock_design_memory_motifs_influence_open_world_card(tmp_path: Path, monkeypatch) -> None:
+    """Design motifs should shape readouts/controls without becoming proof."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package_with_gap_table(
+        package,
+        [("Unregistered interface memory effect lacks a causal test.", "novel_claim")],
+    )
+    context = yaml.safe_load((package / "experiment_context.yaml").read_text(encoding="utf-8"))
+    context["design_memory_motifs"] = [
+        {
+            "source_id": "mock-motif-1",
+            "title": "Design-level memory-effect motif",
+            "primary_readouts": ["bias-history resolved interfacial memory readout"],
+            "controls_used": ["history-free matched interface comparator"],
+            "confounders_addressed": ["bias history", "contact charging"],
+            "decision_logic_supports_H": "memory readout tracks H",
+            "decision_logic_supports_Alt": "contact charging explains Alt",
+            "mixed_or_unresolved_logic": "keep unresolved when both track",
+        }
+    ]
+    (package / "experiment_context.yaml").write_text(
+        yaml.safe_dump(context, sort_keys=False), encoding="utf-8"
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    assert "bias-history resolved interfacial memory readout" in str(card["primary_readouts"])
+    assert "history-free matched interface comparator" in str(card["controls"])
+    assert "not treated as direct proof" in card["design_memory_role"]
+    assert card["design_motif_evidence"]["retrieved_from_design_memory"][0][
+        "wet_lab_detail_removed"
+    ]
+
+
+def test_design_memory_recipe_details_are_removed(tmp_path: Path, monkeypatch) -> None:
+    """Design-memory retrieval must not leak operational recipe details."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package_with_gap_table(
+        package,
+        [("Unregistered surface relaxation effect lacks a causal test.", "novel_claim")],
+    )
+    context = yaml.safe_load((package / "experiment_context.yaml").read_text(encoding="utf-8"))
+    context["design_memory_motifs"] = [
+        {
+            "source_id": "mock-recipe-motif",
+            "primary_readouts": ["spin coat in DMF at 1000 rpm"],
+            "controls_used": ["anneal at 100 degC comparator"],
+        }
+    ]
+    (package / "experiment_context.yaml").write_text(
+        yaml.safe_dump(context, sort_keys=False), encoding="utf-8"
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    rendered_yaml = (output / "experiments.yaml").read_text(encoding="utf-8").lower()
+    assert "spin coat" not in rendered_yaml
+    assert "dmf" not in rendered_yaml
+    assert "anneal at" not in rendered_yaml

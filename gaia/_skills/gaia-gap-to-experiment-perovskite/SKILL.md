@@ -98,34 +98,127 @@ come from the source paper/package and `cross_package_lkm_chains` when they
 come from another paper/package. Never present cross-package reasoning as
 proof internal to the source paper.
 
-## Gap-Family Template Policy
+## Mechanism-Gap Classification Policy
+
+This skill is a general mechanism-gap-to-discriminating-experiment generator.
+It must not use FF/passivation-to-FF as the default spine. FF-loss budget is
+one conditional archetype selected only when a gap explicitly concerns FF,
+fill factor, J-V loss decomposition, series/shunt/leakage, contact resistance,
+transport/contact barrier, or LKM/Gaia reasoning identifies FF-loss-channel
+ambiguity.
+
+Classify each Evidence Gap in two stages:
+
+1. Stage A, pre-retrieval lightweight classification, uses only package-local
+   gap text, target claims, and affected conclusions. Its purpose is to build
+   SQLite/LKM queries, not to finalize the card.
+2. Stage B, evidence-aware final classification, runs after SQLite and LKM
+   retrieval. It combines package-local Gaia artifacts, LKM reasoning chains,
+   SQLite precedent quality as background only, source device context, and
+   p-i-n translation needs to decide final `card_archetype`, mechanism axes,
+   priority, and confidence.
+
+Every classifier result must expose:
+
+- `dominant_observable`
+- `mechanism_axes`
+- `primary_mechanism_axis`
+- `secondary_mechanism_axes`
+- `alternative_class`
+- `architecture_sensitivity`
+- `evidence_gap_kind`
+- `source_claim_type`
+- `device_metric_relevance`
+- `direct_readout_available`
+- `portability_to_p_i_n`
+- `classifier_stage`
+- `classifier_confidence`
+- `classifier_warnings`
+- `matched_archetypes`
+- `conflict_reason`
+
+Mechanism axes:
+
+- `recombination_defect_passivation`
+- `charge_extraction_collection`
+- `contact_energetics_barrier`
+- `series_shunt_leakage_loss`
+- `ion_migration_hysteresis`
+- `morphology_crystallinity_phase`
+- `stability_degradation_pathway`
+- `hydrophobicity_environmental_resistance`
+- `optical_absorption_jsc`
+- `interface_selectivity`
+- `dopant_additive_chemical_interaction`
+- `scalability_reproducibility`
+- `architecture_portability`
+- `model_mapping_quantification`
+
+## Card-Archetype Registry And Open-World Design
 
 Do not emit generic H-vs-Alt placeholder cards when the gap maps to a
-supported experimental family. Classify each Evidence Gap using the gap text,
-target claims, affected conclusions, Gaia artifact context, and LKM reasoning
-terms. Then dispatch to a family-specific card template.
+supported archetype. The generator uses family labels as soft routing aids,
+not as hard requirements. Known archetypes provide reusable design primitives;
+unknown or conflicting gaps must still receive complete H-vs-Alt cards.
 
-Supported families:
+Supported archetypes:
 
-- `ff_loss_budget`: photovoltaic metric budget. The generic generator may
-  only call the photovoltaic metric module's `build_ff_loss_budget_card()`
-  when the classifier returns this family. Detailed FF-loss channels belong in
-  that module, not in generic perovskite planning logic.
-- `extraction_timing`: transient extraction, carrier collection, extraction
-  timing, and collection-dynamics gaps.
-- `ion_migration_hysteresis`: ion migration, hysteresis, scan-direction, and
-  bias-history gaps.
-- `causal_isolation_analog`: sole-cause, passivation-not-isolated,
-  multifunctional intervention, morphology, crystallinity, hydrophobicity, or
-  analog-control gaps.
-- `device_model_link`: theoretical device-model gaps linking trap or
-  recombination proxies to device metrics under bounded contact/transport
-  losses.
+- `ff_loss_budget`: FF/J-V loss decomposition. The generic generator may only
+  call `build_ff_loss_budget_card()` when final classification returns this
+  archetype. Detailed FF channels are owned by the photovoltaic metric module.
+- `recombination_loss_mapping`: trap density, PL/TRPL, PLQY, QFLS, Voc
+  deficit, lifetime, and nonradiative-recombination proxy-to-device gaps.
+- `charge_extraction_collection`: extraction, collection, transport timing,
+  mobility, and carrier-collection gaps.
+- `ion_migration_hysteresis`: mobile ions, hysteresis, scan-direction,
+  bias-history, and interfacial charge-accumulation gaps.
+- `functional_analog_causal_isolation`: multifunctional additives/passivators
+  and causal attribution gaps requiring analog-control logic.
+- `stability_degradation_pathway`: humidity, thermal, light soaking,
+  operational stability, phase stability, and degradation-pathway gaps.
+- `morphology_phase_causality`: morphology, crystallinity, grain size,
+  orientation, phase purity, strain, and microstructure-causality gaps.
+- `contact_energetics_interface_selectivity`: work function, surface
+  potential, band alignment, HTL/ETL interface, barrier, and selectivity gaps.
+- `p_i_n_architecture_translation`: source-to-lab inverted p-i-n portability
+  gaps.
+- `model_mapping_quantification`: gaps asking whether characterization
+  proxies quantitatively explain device metrics.
+- `generic_uncertainty`: explicit unresolved fallback.
 
-If no supported family matches, emit
-`template_resolution_status: unresolved_generic_fallback`, cap priority at
-70, lower confidence, and state that concrete readouts/controls require a new
-or selected domain template. Do not allow these placeholder sentences in final
+Each archetype declares design primitives rather than owning the only possible
+card:
+
+- `readout_motifs`
+- `control_motifs`
+- `confounder_motifs`
+- `closure_rule_motifs`
+- `non_closure_rule_motifs`
+- `architecture_translation_motifs`
+- `failure_mode_motifs`
+
+Open-world design mode is triggered when Stage B classifier confidence is low,
+no known archetype matches, an aggregate-corpus package lacks one source stack,
+LKM/design evidence points to an unregistered mechanism, or the target claim
+cannot be covered by existing families. Multiple known matches use
+`classification_mode: mixed_archetype`; unresolved or low-confidence matches
+use `classification_mode: open_world_design`.
+
+Open-world design mode must not emit an empty generic card. It must:
+
+1. extract causal uncertainty from the gap,
+2. generate H and Alt,
+3. use LKM mechanism and experiment-design reasoning where available,
+4. retrieve design motifs from the design-memory interface or primitive
+   library,
+5. synthesize readout classes, controls, confounders, closure rules, and
+   non-closure rules,
+6. optionally propose an `emergent_gap_family`, and
+7. produce a complete H-vs-Alt experiment card.
+
+If no supported archetype matches, use `generic_uncertainty` only as a label
+for routing and review; it is not permission to output vague content. Do not
+allow these placeholder sentences in final
 `experiments.yaml` or `EXPERIMENT_PLAN.md`:
 
 - "The target transport/contact or performance-limiting branch explains the claim."
@@ -177,20 +270,75 @@ matched controls/readouts without adding an architecture-mismatch warning.
 
 ## SQLite Precedent Quality Gate
 
-SQLite rows are screened before they can appear in `top_precedent_rows`.
-Reject rows that are non-PSC, dye-sensitized, unknown-absorber without PSC
-context, or below `similarity_score < 0.65`. A usable top precedent must match
-at least two comparability axes and include at least one substantive
-composition, intervention-location, or mechanism-family match rather than
-architecture plus aggregate metric alone.
+SQLite rows are screened by one central `SQLiteQualityReport` before any output
+is written. Reuse the same report in `experiments.yaml`,
+`retrieval_evidence.yaml`, and `EXPERIMENT_PLAN.md`; do not recalculate warning
+state separately per output file.
 
-If no qualified precedent remains, emit:
+Reject or demote rows when they are not PSC experiments, are kesterite or
+otherwise cross-domain PV/material rows, have no paired PSC device metric,
+carry only screening-level parsed deltas, match architecture but not
+intervention/mechanism axis, repeat DOI/title metadata without a distinct
+comparison, or otherwise fall below `similarity_score < 0.65`. A usable top
+precedent must match at least two comparability axes and include a substantive
+composition, intervention-location, mechanism-family, or metric-family match.
 
-- `top_precedent_rows: []`
-- `sqlite_precedent_quality: weak_or_none`
-- `parse_coverage_warning: true`
+Emit:
 
-Do not force low-quality or off-domain SQLite rows into the plan.
+- `sqlite_precedent_quality: strong | usable_background | weak_screening_only | unusable`
+- `sqlite_quality_warning`
+- `top_precedent_rows`
+- `demoted_precedent_rows`
+- `rejected_precedent_rows_summary`
+- `parse_coverage_warning`
+- the fixed SQLite role sentence
+
+If no qualified precedent remains, keep `top_precedent_rows: []` rather than
+forcing low-quality rows into the plan. SQLite must never raise mechanism
+confidence, close a mechanism gap, or override Gaia/LKM reasoning.
+
+## Design Memory Interface
+
+Design memory is separate from SQLite paired-delta retrieval. SQLite remains a
+hard precedent/background gate. Design memory is used to retrieve experimental
+motifs: how prior perovskite studies structured controls, readouts,
+confounder bounds, and decision logic. It is not direct proof of the
+source-package mechanism.
+
+Interface:
+
+```python
+retrieve_design_motifs(query, context) -> list[DesignMotif]
+```
+
+`DesignMotif` schema:
+
+- `source_id`
+- `doi`
+- `title`
+- `architecture`
+- `material_system`
+- `intervention`
+- `intervention_location`
+- `target_problem`
+- `claimed_mechanism`
+- `alternative_mechanisms_considered`
+- `controls_used`
+- `primary_readouts`
+- `secondary_readouts`
+- `confounders_addressed`
+- `confounders_not_addressed`
+- `causal_strength`
+- `decision_logic_supports_H`
+- `decision_logic_supports_Alt`
+- `mixed_or_unresolved_logic`
+- `portability_notes`
+- `wet_lab_detail_removed`
+
+When the external design-memory index is unavailable, the generator may use
+the reviewed primitive library as a local fallback. If design-memory text
+contains recipe-level details, strip them and set `wet_lab_detail_removed:
+true`.
 
 ## Required Inputs
 
@@ -262,15 +410,19 @@ Strict-mode stop rules:
   succeed, record that partial failure in `retrieval_evidence.yaml`, add a
   confidence caveat to the relevant cards, and continue.
 
-## Real-Package Mode
+## Package Modes
 
 Real-package mode is the default. Smoke-test mode is allowed only when it is
-explicitly requested for synthetic gaps or fixtures.
+explicitly requested for synthetic gaps or fixtures. Every generated card must
+declare `package_mode`:
 
-Every non-smoke-test experiment card must bind to a concrete Gaia package and
-device/intervention object. Before drafting cards, recover these fields from
-`ANALYSIS.md`, `.gaia/beliefs.json`, `graph.json`, `src/<package>/*.py`, the
-SQLite database, `experiment_context.yaml`, or user-provided context:
+- `single_paper`: bind to the locked source paper/package context.
+- `aggregate_corpus`: bind to a corpus-level package such as `pvsk-gaia`
+  without inventing one locked stack.
+
+Before drafting cards, recover these fields from `ANALYSIS.md`,
+`.gaia/beliefs.json`, `graph.json`, `src/<package>/*.py`, the SQLite database,
+`experiment_context.yaml`, or user-provided context:
 
 - `source_package`
 - target weak claim or gap node, emitted as `target_claims`
@@ -278,20 +430,28 @@ SQLite database, `experiment_context.yaml`, or user-provided context:
 - `current_belief`
 - original Evidence Gap text from `ANALYSIS.md`, emitted as
   `original_evidence_gap_text`
-- `device_context.solar_cell_structure`
-- `device_context.cell_stack_sequence` or enough stack detail to name the
-  architecture
-- `device_context.perovskite_composition`
-- `device_context.intervention_location`
-- `device_context.modulator_material_or_family`
+
+For `single_paper`, also recover:
+
+- `source_device_context.solar_cell_structure`
+- `source_device_context.cell_stack_sequence` or enough stack detail to name
+  the architecture
+- `source_device_context.perovskite_composition`
+- `source_device_context.intervention_location`
+- `source_device_context.modulator_material_or_family`
+
+For `aggregate_corpus`, do not require one locked stack. Use a corpus-level
+distribution or dominant families instead. LKM chains and SQLite precedents
+must distinguish package-local, corpus-level, cross-package, and ambiguous
+scope. Do not present aggregate trends as single-paper mechanism proof.
 
 If any required field cannot be recovered, do not emit a generic experiment
 card. Emit a `context_missing_preflight` section instead. The preflight must
 list the missing fields, the sources checked, and the minimum user/package
 context needed to unlock card generation.
 
-`device_context` must be package-specific. A card whose device context only
-says "perovskite solar cell" is not acceptable in real-package mode.
+`source_device_context` must be package-specific in single-paper mode. A card
+whose source context only says "perovskite solar cell" is not acceptable there.
 
 ## `experiment_context.yaml`
 
@@ -300,6 +460,7 @@ before cards are generated. Use canonical snake_case keys downstream:
 
 ```yaml
 source_package:
+package_mode: single_paper
 solar_cell_structure:
 cell_stack_sequence:
 etl_stack_sequence:
@@ -311,6 +472,10 @@ modulator_material_or_family:
 target_metrics:
 available_readouts:
 lab_preferred_device_architecture: inverted p-i-n
+corpus_level_distribution:
+dominant_architecture_families:
+dominant_absorber_families:
+dominant_intervention_families:
 ```
 
 The loader may accept obvious human aliases at input time, such as
@@ -327,14 +492,51 @@ a context preflight error rather than guessing.
 
 - `EXPERIMENT_PLAN.md`: human-readable ranked roadmap
 - `experiments.yaml`: machine-readable experiment cards
-- `retrieval_evidence.yaml`: database query summaries, row counts, tier counts,
-  parse coverage, successful/failed endpoints per gap, same/cross-package LKM
-  chain summaries, SQLite/LKM conflicts, architecture translation warnings, and
-  parse coverage warnings
+- `retrieval_evidence.yaml`: preflight summary, database query summaries, row
+  counts, tier counts, parse coverage, successful/failed endpoints per gap,
+  same/cross/ambiguous-package LKM chain summaries, SQLite/LKM conflicts,
+  architecture translation warnings, and parse coverage warnings
 - `context_missing_preflight.yaml`: written when strict-mode context is missing
   and card generation stops
 - `lkm/*.json`: LKM retrieval artifacts when LKM retrieval is used and the
   outputs are audit artifacts, reasonably sized, and not secret-bearing
+
+Every experiment card must include the role-separated evidence fields plus the
+new classifier/archetype fields:
+
+- `package_mode`
+- `gap_classifier_output`
+- `mechanism_axes`
+- `primary_mechanism_axis`
+- `secondary_mechanism_axes`
+- `card_archetype`
+- `classification_mode`
+- `archetype_selection`
+- `design_motif_evidence`
+- `design_memory_role`
+- `lkm_design_reasoning`
+- `observable_to_mechanism_mapping`
+- `non_closure_criteria`
+- `belief_update_contract`
+- `sqlite_precedent_quality`
+- `sqlite_quality_warning`
+- `ambiguous_lkm_chains`
+- `p_i_n_adaptation_design`
+- optional `emergent_gap_family`
+
+`retrieval_evidence.yaml` must include:
+
+```yaml
+preflight:
+  strict_preflight_passed:
+  package:
+  package_mode:
+  inputs_read:
+  context_missing_preflight_generated:
+  sqlite_available:
+  lkm_credential_loaded:
+  lab_preferred_device_architecture:
+```
 
 ## Workflow
 
@@ -352,14 +554,14 @@ a context preflight error rather than guessing.
      conclusions and identify bottleneck nodes shared by multiple conclusions.
    - Read `references.json` when available to resolve provenance names.
 
-2. Normalize each gap into the handoff fields required by
-   `gaia-formalize-fine`: target node, affected conclusions, gap type, H, Alt,
-   discriminating observation, minimum experiment class, controls, readouts,
-   and closure criterion. In real-package mode, do not infer placeholders for
-   required package/device/intervention fields. If those fields remain missing,
-   emit `context_missing_preflight` and stop before card generation.
-   Extract package-local Gaia mechanism evidence first, including mechanism
-   chains, missing causal links, conflicting mechanisms, and measurement logic.
+2. Normalize each gap into the handoff fields required by the experiment
+   generator: target node, affected conclusions, current belief, original gap
+   text, preliminary H/Alt, and source context. In real-package mode, do not
+   infer placeholders for required package/device/intervention fields. If those
+   fields remain missing, emit `context_missing_preflight` and stop before card
+   generation. Extract package-local Gaia mechanism evidence first, including
+   mechanism chains, missing causal links, conflicting mechanisms, and
+   measurement logic.
 
 3. Load the relevant references for this skill:
    - Database retrieval: [references/database-retrieval.md](references/database-retrieval.md)
@@ -368,10 +570,9 @@ a context preflight error rather than guessing.
    - Gap taxonomy: [references/perovskite-gap-taxonomy.md](references/perovskite-gap-taxonomy.md)
    - Readout map: [references/perovskite-readout-map.md](references/perovskite-readout-map.md)
 
-4. Classify each gap with the perovskite taxonomy. Select the most specific
-   gap type that explains the H-vs-Alt uncertainty. If multiple categories
-   apply, choose the primary category for `gap_type` and record secondary
-   mechanisms in `scientific_uncertainty` and `secondary_readouts`.
+4. Run Stage A lightweight classification before retrieval. Use the result to
+   shape SQLite, LKM, and design-memory queries, but do not finalize
+   `card_archetype` yet.
 
 5. Query the local SQLite database for every gap before drafting the card.
    Retrieve and tier precedents by package-specific architecture, absorber,
@@ -389,10 +590,18 @@ a context preflight error rather than guessing.
    discriminating observations, provenance papers, and agreement or conflict
    with database patterns. Separate same-package from cross-package reasoning
    and retain provenance fields in `lkm/*.json`, `retrieval_evidence.yaml`, and
-   card summaries. If LKM fails, emit `lkm_unavailable` diagnostics and lower
-   confidence.
+   card summaries. Canonicalize LKM provenance as `same_package`,
+   `cross_package`, or `ambiguous_package_scope`; ambiguous chains are audit
+   evidence only and lower attribution weight. If LKM fails, emit
+   `lkm_unavailable` diagnostics and lower confidence.
 
-7. Draft one complete experiment card per experimental gap.
+7. Run Stage B evidence-aware classification, then decide
+   `classification_mode`:
+   - `closed_set_archetype` for a single confident archetype,
+   - `mixed_archetype` when multiple known archetypes contribute motifs, or
+   - `open_world_design` when fixed families are insufficient.
+   Draft one complete experiment card per experimental gap from the selected
+   primitives or open-world motif synthesis.
    Do not emit vague suggestions such as "do more characterization" or "study
    stability further." Every card must say what uncertainty is being resolved,
    what H and Alt are, what observation distinguishes them, which controls are
@@ -405,18 +614,23 @@ a context preflight error rather than guessing.
    analog-control logic for causal attribution or multifunctional-passivator
    gaps.
 
-8. Rank cards with the 0-100 priority formula in
+8. If open-world design mode proposes an `emergent_gap_family`, keep
+   `review_required: true`. New families become registry archetypes only after
+   review of their motif sources, H/Alt logic, readout mapping, and safety
+   boundary.
+
+9. Rank cards with the 0-100 priority formula in
    `experiment-card-schema.md`. Sort `experiments.yaml` and the roadmap by
    descending priority. Preserve per-gap traceability even when multiple gaps
    can be bundled into one experimental campaign.
 
-9. Write `EXPERIMENT_PLAN.md`, `experiments.yaml`,
+10. Write `EXPERIMENT_PLAN.md`, `experiments.yaml`,
    `retrieval_evidence.yaml`, and `lkm/*.json` artifacts when LKM retrieval is
    used. If strict-mode context is missing, write
    `context_missing_preflight.yaml` instead of cards. Include safety and
    feasibility boundaries in both human-readable and YAML outputs.
 
-10. Use the automation entrypoint when a package has `ANALYSIS.md` and either
+11. Use the automation entrypoint when a package has `ANALYSIS.md` and either
    recovered context or `experiment_context.yaml`:
 
    ```bash
@@ -428,7 +642,7 @@ a context preflight error rather than guessing.
    real-package mode stops when SQLite is missing; `--allow-missing-sqlite` is
    for smoke tests or exploratory dry runs only.
 
-11. Validate `experiments.yaml` before handoff:
+12. Validate `experiments.yaml` before handoff:
 
    ```bash
    uv run python scripts/validate_experiment_cards.py experiments.yaml \
@@ -452,7 +666,11 @@ a context preflight error rather than guessing.
   precedent strength, LKM support, discriminating power, and feasibility.
 - SQLite performance deltas are precedent evidence only. Do not claim they
   prove a mechanism without LKM or package-local reasoning evidence.
+- FF-loss budget must not be the default card. It is selected only by explicit
+  FF/J-V-loss evidence or FF-loss-channel ambiguity.
 - No cross-package LKM chain may be represented as same-package/source-paper
   proof.
+- Ambiguous LKM provenance must stay in `ambiguous_lkm_chains`; do not coerce
+  it to same-package or cross-package scope.
 - No package locked context may be overwritten by the p-i-n lab translation.
 - No single aggregate metric improvement may be treated as mechanism proof.

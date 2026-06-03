@@ -76,6 +76,36 @@ Use domain terms from the Gaia package and SQLite hits. Do not introduce
 mechanism certainty before retrieval; phrase broad queries as questions when
 appropriate.
 
+Every gap uses two LKM query intents:
+
+1. Mechanism reasoning query:
+   - What mechanism chains support or undermine this claim?
+   - What competing explanations exist?
+2. Experiment-design reasoning query:
+   - What measurement classes distinguish H from Alt?
+   - What controls isolate mechanism A from mechanism B?
+   - What observations support H, support Alt, or remain unresolved?
+   - What evidence would be insufficient?
+   - How should this be translated to inverted p-i-n architecture?
+
+Summarize the second intent into `lkm_design_reasoning`:
+
+```yaml
+lkm_design_reasoning:
+  endpoint:
+  query:
+  readout_classes:
+  controls:
+  confounders:
+  closure_rules:
+  non_closure_rules:
+  portability_notes:
+  provenance:
+  same_package:
+  cross_package:
+  ambiguous:
+```
+
 ## Endpoint Workflow
 
 ### 1. Claim Search

@@ -28,6 +28,7 @@ def _valid_card() -> dict[str, object]:
     """Return a complete real-package experiment card."""
     return {
         "gap_id": "experimental_gap_01_interface_mechanism",
+        "package_mode": "single_paper",
         "source_package": "fa_cs_interface_gaia",
         "target_claims": ["fa_cs_interface::weak_interface_claim"],
         "affected_conclusions": ["fa_cs_interface::main_conclusion"],
@@ -37,6 +38,54 @@ def _valid_card() -> dict[str, object]:
             "morphology or contact alternatives."
         ),
         "gap_type": "multifunctional additive causal-isolation gap",
+        "gap_classifier_output": {
+            "dominant_observable": "functional analog response and bounded covariates",
+            "mechanism_axes": [
+                "dopant_additive_chemical_interaction",
+                "recombination_defect_passivation",
+                "morphology_crystallinity_phase",
+            ],
+            "primary_mechanism_axis": "dopant_additive_chemical_interaction",
+            "secondary_mechanism_axes": [
+                "recombination_defect_passivation",
+                "morphology_crystallinity_phase",
+            ],
+            "alternative_class": "multifunctional covariate alternative",
+            "architecture_sensitivity": "architecture_sensitive",
+            "evidence_gap_kind": "causal_isolation_gap",
+            "source_claim_type": "mechanism_claim",
+            "device_metric_relevance": "mechanism_specific_metric_context_required",
+            "direct_readout_available": "archetype_specific_readout_classes_available",
+            "portability_to_p_i_n": "translation_required",
+            "classifier_stage": "evidence_aware_final",
+            "classifier_confidence": "moderate",
+            "classifier_warnings": [],
+            "card_archetype": "functional_analog_causal_isolation",
+            "matched_archetypes": ["functional_analog_causal_isolation"],
+            "conflict_reason": "none",
+        },
+        "mechanism_axes": [
+            "dopant_additive_chemical_interaction",
+            "recombination_defect_passivation",
+            "morphology_crystallinity_phase",
+        ],
+        "primary_mechanism_axis": "dopant_additive_chemical_interaction",
+        "secondary_mechanism_axes": [
+            "recombination_defect_passivation",
+            "morphology_crystallinity_phase",
+        ],
+        "card_archetype": "functional_analog_causal_isolation",
+        "classification_mode": "closed_set_archetype",
+        "archetype_selection": {
+            "selected": "functional_analog_causal_isolation",
+            "rejected": [],
+            "conflict_reason": "none",
+            "classifier_confidence": "moderate",
+            "soft_routing_note": (
+                "Family labels route design primitives; they are not hard requirements "
+                "for generating a full experiment card."
+            ),
+        },
         "priority": 82,
         "priority_rationale": (
             "High Gaia impact, strong discriminating power, useful SQLite precedent "
@@ -78,7 +127,14 @@ def _valid_card() -> dict[str, object]:
                     "parsed_deltas": {"pce": 1.2, "ff": 0.04, "voc": 0.02},
                 }
             ],
+            "demoted_precedent_rows": [],
+            "rejected_precedent_rows_summary": {},
+            "sqlite_precedent_quality": "usable_background",
+            "sqlite_quality_warning": False,
+            "parse_coverage_warning": False,
         },
+        "sqlite_precedent_quality": "usable_background",
+        "sqlite_quality_warning": False,
         "sqlite_role": (
             "SQLite is for precedent discovery, stack/intervention matching, and "
             "paired delta background only; it is not mechanism proof."
@@ -94,6 +150,71 @@ def _valid_card() -> dict[str, object]:
         "lkm_evidence_summary": (
             "LKM reasoning chains support recombination and contact Alt separation "
             "with same-package and cross-package provenance retained."
+        ),
+        "lkm_design_reasoning": {
+            "endpoint": "/reasoning/search",
+            "query": "mechanism design query",
+            "readout_classes": ["interface readout class"],
+            "controls": ["interface-specific comparator control"],
+            "confounders": ["morphology"],
+            "closure_rules": ["close only with H-vs-Alt readout"],
+            "non_closure_rules": ["do not close with proxy-only evidence"],
+            "portability_notes": ["re-test in inverted p-i-n"],
+            "provenance": [],
+            "same_package": [],
+            "cross_package": [],
+            "ambiguous": [],
+        },
+        "design_motif_evidence": {
+            "retrieved_from_lkm": {
+                "endpoint": "/reasoning/search",
+                "query": "mechanism design query",
+                "readout_classes": ["interface readout class"],
+                "controls": ["interface-specific comparator control"],
+                "confounders": ["morphology"],
+                "closure_rules": ["close only with H-vs-Alt readout"],
+                "non_closure_rules": ["do not close with proxy-only evidence"],
+                "portability_notes": ["re-test in inverted p-i-n"],
+                "provenance": [],
+            },
+            "retrieved_from_design_memory": [
+                {
+                    "source_id": "primitive_library::functional_analog_causal_isolation",
+                    "doi": "not_applicable",
+                    "title": "Functional analog controls for causal isolation",
+                    "architecture": "n-i-p",
+                    "material_system": "FA-Cs perovskite",
+                    "intervention": "Lewis-base interfacial modulator",
+                    "intervention_location": "ETL/perovskite interface",
+                    "target_problem": "causal isolation",
+                    "claimed_mechanism": "dopant_additive_chemical_interaction",
+                    "alternative_mechanisms_considered": ["morphology"],
+                    "controls_used": ["functional analog control"],
+                    "primary_readouts": ["trap/recombination readout"],
+                    "secondary_readouts": ["p-i-n portability check"],
+                    "confounders_addressed": ["morphology"],
+                    "confounders_not_addressed": ["motif is not proof"],
+                    "causal_strength": "design_motif_only",
+                    "decision_logic_supports_H": "readout supports H",
+                    "decision_logic_supports_Alt": "readout supports Alt",
+                    "mixed_or_unresolved_logic": "keep unresolved when mixed",
+                    "portability_notes": ["p-i-n check required"],
+                    "wet_lab_detail_removed": True,
+                }
+            ],
+            "retrieved_from_sqlite_background": {
+                "sqlite_precedent_quality": "usable_background",
+                "sqlite_quality_warning": False,
+                "role": "SQLite background only; not mechanism proof.",
+            },
+            "motif_synthesis_summary": (
+                "Design motifs inform readout/control/confounder/closure-rule selection. "
+                "They are not treated as proof of the source-package mechanism."
+            ),
+        },
+        "design_memory_role": (
+            "Design memory is used for experimental motif retrieval and control/readout "
+            "design. It is not treated as direct proof of the source-package mechanism."
         ),
         "mechanism_source_breakdown": {
             "package_local_gaia_evidence": (
@@ -132,6 +253,7 @@ def _valid_card() -> dict[str, object]:
                 "cross_package": True,
             }
         ],
+        "ambiguous_lkm_chains": [],
         "unknown_package_lkm_chains": [],
         "sqlite_lkm_conflicts": [
             "No direct conflict; SQLite deltas are treated only as background."
@@ -192,6 +314,31 @@ def _valid_card() -> dict[str, object]:
                 "Re-map ETL-side contact language to p-i-n selective-contact comparisons."
             ),
         },
+        "p_i_n_adaptation_design": {
+            "source_claim_to_translate": "fa_cs_interface::weak_interface_claim",
+            "architecture_transfer_assumptions": [
+                "source n-i-p result cannot close p-i-n mechanism without matched readouts"
+            ],
+            "p_i_n_interface_of_interest": "HTL-side or ETL-side translated interface",
+            "p_i_n_specific_alt_branches": [
+                "p-i-n contact resistance or barrier branch",
+                "high-performance baseline ceiling effect",
+            ],
+            "high_performance_baseline_ceiling_effect": (
+                "High-performance p-i-n baselines may compress device-metric headroom."
+            ),
+            "p_i_n_specific_controls": [
+                "p-i-n baseline without intervention",
+                "source n-i-p reference only as provenance, not as p-i-n proof",
+            ],
+            "p_i_n_specific_readouts": [
+                "architecture-matched mechanism readout",
+                "contact-selective extraction or barrier diagnostic class",
+            ],
+            "p_i_n_closure_rule": "Close only with p-i-n matched H-vs-Alt readouts.",
+            "p_i_n_non_closure_rule": ("Source n-i-p result alone cannot close p-i-n mechanism."),
+            "what_not_to_generalize": ["Do not treat p-i-n translation as source-paper evidence."],
+        },
         "portability_risks_for_p_i_n": [
             "The source n-i-p contact stack may make contact-barrier "
             "interpretation architecture-sensitive."
@@ -238,6 +385,11 @@ def _valid_card() -> dict[str, object]:
             }
         ],
         "secondary_readouts": ["morphology screen", "dark JV context"],
+        "observable_to_mechanism_mapping": {
+            "chemical_interaction_branch": "interface/trap readout supports H",
+            "morphology_branch": "morphology explains Alt",
+            "contact_energetics_branch": "contact energetics explains Alt",
+        },
         "expected_result_if_H": (
             "Interface-sensitive and trap-sensitive readouts support H while bounded "
             "covariates do not explain the result."
@@ -250,6 +402,10 @@ def _valid_card() -> dict[str, object]:
             "The H/Alt likelihood direction is identifiable from direct readout "
             "agreement, while mixed patterns remain unresolved."
         ),
+        "non_closure_criteria": [
+            "H and Alt readouts remain mixed_or_unresolved",
+            "SQLite precedent background is the only support",
+        ],
         "minimum_replicate_logic": (
             "Use independent matched devices and batches as comparison logic without "
             "operational preparation parameters."
@@ -289,6 +445,9 @@ def _valid_card() -> dict[str, object]:
         },
         "belief_update_target": (
             "Update fa_cs_interface::weak_interface_claim likelihood toward H or Alt."
+        ),
+        "belief_update_contract": (
+            "Update only the named Gaia claim direction supported by the outcome matrix."
         ),
         "feasibility_notes": "Design-level readout classes are available without recipe details.",
         "safety_boundary_note": (
@@ -594,6 +753,7 @@ def test_retrieval_evidence_requires_endpoint_diagnostics() -> None:
                 "failed_endpoints": ["/search timeout"],
                 "same_package_lkm_chains": [{"chain_id": "lkm_chain_01"}],
                 "cross_package_lkm_chains": [],
+                "ambiguous_lkm_chains": [],
                 "unknown_package_lkm_chains": [],
                 "parse_coverage": {"ff": "0/2"},
             }

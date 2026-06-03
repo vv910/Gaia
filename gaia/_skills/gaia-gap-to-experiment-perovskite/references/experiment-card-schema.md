@@ -58,6 +58,13 @@ Every card in `experiments.yaml` must include these keys:
   current_belief:
   original_evidence_gap_text:
   gap_type:
+  gap_classifier_output:
+  mechanism_axes:
+  primary_mechanism_axis:
+  secondary_mechanism_axes:
+  card_archetype:
+  classification_mode:
+  archetype_selection:
   priority:
   priority_rationale:
   scientific_uncertainty:
@@ -67,18 +74,25 @@ Every card in `experiments.yaml` must include these keys:
   database_queries_run:
   database_precedents:
   sqlite_role:
+  sqlite_precedent_quality:
+  sqlite_quality_warning:
   lkm_queries_run:
   lkm_role:
+  lkm_design_reasoning:
   lkm_evidence_summary:
+  design_motif_evidence:
+  design_memory_role:
   mechanism_source_breakdown:
   same_package_lkm_chains:
   cross_package_lkm_chains:
+  ambiguous_lkm_chains:
   sqlite_lkm_conflicts:
   mechanism_attribution_limitations:
   gap_resolution_strategy:
   recommended_experiment_class:
   source_device_context:
   lab_translation_context:
+  p_i_n_adaptation_design:
   portability_risks_for_p_i_n:
   architecture_sensitive_readouts:
   what_not_to_generalize:
@@ -86,15 +100,18 @@ Every card in `experiments.yaml` must include these keys:
   controls:
   primary_readouts:
   secondary_readouts:
+  observable_to_mechanism_mapping:
   expected_result_if_H:
   expected_result_if_Alt:
   success_criterion_for_closing_gap:
+  non_closure_criteria:
   minimum_replicate_logic:
   statistics_or_comparison_logic:
   failure_modes:
   interpretation_decision_tree:
   outcome_matrix:
   belief_update_target:
+  belief_update_contract:
   feasibility_notes:
   safety_boundary_note:
   confidence:
@@ -129,6 +146,37 @@ payloads; raw or longer summaries can live in `retrieval_evidence.yaml` and
 
 `gap_type`
 : One of the perovskite taxonomy classes, with optional secondary tags.
+
+`classification_mode`
+: One of `closed_set_archetype`, `mixed_archetype`, or
+  `open_world_design`. Family labels are soft routing aids. If a gap has no
+  good known family, the card must still contain H, Alt, readouts, controls,
+  confounders, and closure/non-closure rules.
+
+`archetype_selection`
+: Mapping with `selected`, `rejected`, `conflict_reason`, and
+  `classifier_confidence`. Use this to audit why the generator used one
+  archetype, combined several motif sources, or entered open-world design mode.
+
+`design_motif_evidence`
+: Role-separated motif evidence:
+
+  ```yaml
+  design_motif_evidence:
+    retrieved_from_lkm:
+    retrieved_from_design_memory:
+    retrieved_from_sqlite_background:
+    motif_synthesis_summary:
+  ```
+
+  Design motifs guide controls/readouts/decision logic. They are not direct
+  proof of the source-package mechanism.
+
+`emergent_gap_family`
+: Optional mapping emitted when open-world design finds that existing
+  families are insufficient. It must include a proposed name, closest existing
+  families, reason for insufficiency, motif sources, confidence, and
+  `review_required: true`.
 
 `hypothesis_H` and `alternative_Alt`
 : Competing explanations stated as testable propositions.

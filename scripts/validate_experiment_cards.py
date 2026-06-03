@@ -15,11 +15,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 REQUIRED_FIELDS = (
     "gap_id",
+    "package_mode",
     "gap_type",
+    "gap_classifier_output",
+    "mechanism_axes",
+    "primary_mechanism_axis",
+    "secondary_mechanism_axes",
+    "card_archetype",
+    "classification_mode",
+    "archetype_selection",
+    "design_motif_evidence",
+    "design_memory_role",
     "priority",
     "priority_rationale",
     "scientific_uncertainty",
@@ -29,13 +39,16 @@ REQUIRED_FIELDS = (
     "database_queries_run",
     "database_precedents",
     "sqlite_role",
+    "sqlite_precedent_quality",
+    "sqlite_quality_warning",
     "lkm_queries_run",
     "lkm_role",
+    "lkm_design_reasoning",
     "lkm_evidence_summary",
     "mechanism_source_breakdown",
     "same_package_lkm_chains",
     "cross_package_lkm_chains",
-    "unknown_package_lkm_chains",
+    "ambiguous_lkm_chains",
     "sqlite_lkm_conflicts",
     "mechanism_attribution_limitations",
     "gap_resolution_strategy",
@@ -44,14 +57,17 @@ REQUIRED_FIELDS = (
     "controls",
     "primary_readouts",
     "secondary_readouts",
+    "observable_to_mechanism_mapping",
     "expected_result_if_H",
     "expected_result_if_Alt",
     "success_criterion_for_closing_gap",
+    "non_closure_criteria",
     "minimum_replicate_logic",
     "statistics_or_comparison_logic",
     "failure_modes",
     "interpretation_decision_tree",
     "belief_update_target",
+    "belief_update_contract",
     "feasibility_notes",
     "confidence",
     "open_questions",
@@ -66,6 +82,7 @@ REAL_PACKAGE_FIELDS = (
     "original_evidence_gap_text",
     "source_device_context",
     "lab_translation_context",
+    "p_i_n_adaptation_design",
     "portability_risks_for_p_i_n",
 )
 
@@ -357,7 +374,7 @@ def validate_retrieval_evidence_payload(payload: Any) -> ValidationResult:
             "failed_endpoints",
             "same_package_lkm_chains",
             "cross_package_lkm_chains",
-            "unknown_package_lkm_chains",
+            "ambiguous_lkm_chains",
         ):
             if field_name not in gap or (
                 field_name == "gap_id" and is_missing(gap.get(field_name))
@@ -421,7 +438,10 @@ def validate_card(
         if is_missing(source_context):
             source_context = card.get("device_context")
         validate_device_context(
-            source_context, result, path_join(card_path, "source_device_context")
+            source_context,
+            result,
+            path_join(card_path, "source_device_context"),
+            package_mode=stringify(card.get("package_mode")),
         )
         validate_lab_translation_context(
             card.get("lab_translation_context"),
@@ -442,6 +462,14 @@ def validate_card(
         path_join(card_path, "database_precedents"),
     )
     validate_sqlite_role(card.get("sqlite_role"), result, path_join(card_path, "sqlite_role"))
+    validate_design_memory_role(
+        card.get("design_memory_role"), result, path_join(card_path, "design_memory_role")
+    )
+    validate_design_motif_evidence(
+        card.get("design_motif_evidence"),
+        result,
+        path_join(card_path, "design_motif_evidence"),
+    )
     warn_database_confidence_limitations(card, result, card_path)
     validate_mechanism_source_breakdown(
         card.get("mechanism_source_breakdown"),
@@ -461,10 +489,10 @@ def validate_card(
         path=path_join(card_path, "cross_package_lkm_chains"),
     )
     validate_lkm_chain_scope(
-        card.get("unknown_package_lkm_chains"),
-        expected_scope="unknown_package_scope",
+        card.get("ambiguous_lkm_chains"),
+        expected_scope="ambiguous_package_scope",
         result=result,
-        path=path_join(card_path, "unknown_package_lkm_chains"),
+        path=path_join(card_path, "ambiguous_lkm_chains"),
     )
     validate_lkm_failure_confidence(card, result, card_path)
     validate_sqlite_mechanism_limits(card, result, card_path)
@@ -509,7 +537,7 @@ def validate_required_fields(
     presence_only_fields = {
         "same_package_lkm_chains",
         "cross_package_lkm_chains",
-        "unknown_package_lkm_chains",
+        "ambiguous_lkm_chains",
     }
     for field_name in required:
         if (
@@ -530,10 +558,24 @@ def validate_required_fields(
             result.errors.append(f"{card_path}.{field_name}: required field is missing")
 
 
-def validate_device_context(value: Any, result: ValidationResult, path: str) -> None:
+def validate_device_context(
+    value: Any, result: ValidationResult, path: str, *, package_mode: str = "single_paper"
+) -> None:
     """Require concrete device/intervention context in real-package mode."""
     if not isinstance(value, dict):
         result.errors.append(f"{path}: must be a mapping in real-package mode")
+        return
+
+    if package_mode == "aggregate_corpus":
+        if value.get("package_mode") != "aggregate_corpus":
+            result.errors.append(f"{path}.package_mode: aggregate source context must be explicit")
+        if is_missing(value.get("corpus_level_distribution")) and is_missing(
+            value.get("dominant_architecture_families")
+        ):
+            result.errors.append(
+                f"{path}: aggregate_corpus mode requires corpus-level distribution "
+                "or dominant architecture families"
+            )
         return
 
     for field_name in DEVICE_CONTEXT_FIELDS:
@@ -691,6 +733,35 @@ def validate_sqlite_role(value: Any, result: ValidationResult, path: str) -> Non
         )
 
 
+def validate_design_memory_role(value: Any, result: ValidationResult, path: str) -> None:
+    """Ensure design memory is motif guidance, not source-mechanism proof."""
+    text = " ".join(item.lower() for _, item in iter_strings(value, path))
+    if not text:
+        return
+    if "motif" not in text or "not treated as direct proof" not in text:
+        result.errors.append(
+            f"{path}: design memory must be limited to motif retrieval and not direct proof"
+        )
+
+
+def validate_design_motif_evidence(value: Any, result: ValidationResult, path: str) -> None:
+    """Validate open-world design motif evidence shape."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: must be a mapping")
+        return
+    for field_name in (
+        "retrieved_from_lkm",
+        "retrieved_from_design_memory",
+        "retrieved_from_sqlite_background",
+        "motif_synthesis_summary",
+    ):
+        if is_missing(value.get(field_name)):
+            result.errors.append(f"{path}.{field_name}: required field is missing")
+    motif_text = " ".join(text.lower() for _, text in iter_strings(value, path))
+    if "proof of the source-package mechanism" in motif_text and "not treated" not in motif_text:
+        result.errors.append(f"{path}: design motifs cannot be direct source-mechanism proof")
+
+
 def validate_mechanism_source_breakdown(value: Any, result: ValidationResult, path: str) -> None:
     """Require explicit source separation for mechanism attribution."""
     if not isinstance(value, dict):
@@ -744,11 +815,11 @@ def validate_lkm_chain_scope(  # noqa: C901
             if cross_flag is True:
                 result.errors.append(f"{chain_path}.cross_package: must not be true")
         else:
-            if scope and "unknown" not in scope:
-                result.errors.append(f"{chain_path}: unknown-scope chain mislabeled as {scope}")
+            if scope and not ("ambiguous" in scope or "unknown" in scope):
+                result.errors.append(f"{chain_path}: ambiguous-scope chain mislabeled as {scope}")
             if cross_flag is True:
                 result.errors.append(
-                    f"{chain_path}.cross_package: unknown-scope chains must not be true"
+                    f"{chain_path}.cross_package: ambiguous-scope chains must not be true"
                 )
 
         if all(is_missing(chain.get(field_name)) for field_name in LKM_PROVENANCE_FIELDS):

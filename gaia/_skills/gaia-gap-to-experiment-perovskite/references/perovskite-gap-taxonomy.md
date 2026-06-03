@@ -1,9 +1,21 @@
 # Perovskite Gap Taxonomy
 
-Classify each experimental gap into the most specific category below. The
-category determines the default H-vs-Alt framing, readout priorities, and
-required controls. If a gap spans categories, choose one primary category and
-record secondary categories in the card.
+Classify each experimental gap into the most useful category or combination of
+categories below. These labels are soft routing aids for design primitives, not
+hard gates. If a gap spans categories, record multiple matches and use
+`classification_mode: mixed_archetype`. If no family fits, use
+`classification_mode: open_world_design`, synthesize a complete H-vs-Alt card
+from causal uncertainty, LKM/design-memory motifs, and source context, and
+optionally emit an `emergent_gap_family` with `review_required: true`.
+
+To promote an emergent family into the registry, review:
+
+- whether its mechanism axis is distinct from existing axes,
+- whether motifs provide concrete readouts, controls, confounders, closure
+  rules, and non-closure rules,
+- whether motif sources are provenance-retained,
+- whether p-i-n translation boundaries are explicit, and
+- whether no wet-lab recipe details leak into outputs.
 
 ## 1. Passivation / Recombination Gap
 
