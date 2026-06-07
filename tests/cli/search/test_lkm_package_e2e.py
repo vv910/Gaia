@@ -33,48 +33,69 @@ def _paper_graph_payload() -> dict[str, Any]:
                         "id": "811827932371615744",
                         "package_id": "paper:811827932371615744",
                     },
-                    "variables": [
+                    "addressed_problems": [
                         {
                             "content": "Which phase conversion pathway dominates?",
-                            "global_id": "gq_phase",
+                            "global_id": "gap_phase",
+                            "id": "paper:811827932371615744::addressed_problem_1",
                             "local_id": "paper:811827932371615744::Q1",
-                            "type": "question",
                         }
                     ],
-                    "factors": [
+                    "open_questions": [
                         {
-                            "conclusion": {
-                                "content": "Annealing at 120 C improves alpha-phase purity.",
-                                "global_id": "gcn_conclusion",
-                                "local_id": "paper:811827932371615744::conclusion_1",
+                            "content": "Which stability mechanisms remain unresolved?",
+                            "global_id": "goq_stability",
+                            "id": "paper:811827932371615744::open_question_1",
+                        }
+                    ],
+                    "graph": {
+                        "nodes": [
+                            {
+                                "content": "The 120 C condition increases alpha-FAPbI3 fraction.",
+                                "id": "gcn_premise",
+                                "kind": "highlight",
+                                "local_id": "paper:811827932371615744::P1",
+                                "title": "120 C phase fraction",
                                 "type": "claim",
                             },
-                            "factor_type": "strategy",
-                            "global_id": "gfac_phase",
-                            "local_id": "lfac_phase",
-                            "premises": [
-                                {
-                                    "content": (
-                                        "The 120 C condition increases alpha-FAPbI3 fraction."
-                                    ),
-                                    "global_id": "gcn_premise",
-                                    "local_id": "paper:811827932371615744::P1",
-                                    "type": "claim",
-                                }
-                            ],
-                            "steps": [
-                                {
-                                    "reasoning": (
-                                        "Use the measured phase fraction to support the "
-                                        "annealing conclusion."
-                                    ),
-                                    "step_id": "1",
-                                }
-                            ],
-                            "subtype": "noisy_and",
-                        }
-                    ],
-                    "motivations": [],
+                            {
+                                "id": "lfac_phase",
+                                "kind": "reasoning_steps",
+                                "local_id": "lfac_phase",
+                                "steps": [
+                                    {
+                                        "reasoning": (
+                                            "Use the measured phase fraction to support the "
+                                            "annealing conclusion."
+                                        ),
+                                        "step_id": "1",
+                                    }
+                                ],
+                                "subtype": "noisy_and",
+                                "type": "factor",
+                            },
+                            {
+                                "content": "Annealing at 120 C improves alpha-phase purity.",
+                                "id": "gcn_conclusion",
+                                "kind": "conclusion",
+                                "local_id": "paper:811827932371615744::conclusion_1",
+                                "title": "Annealing result",
+                                "type": "claim",
+                            },
+                        ],
+                        "edges": [
+                            {
+                                "type": "highlight_of",
+                                "source": "gcn_premise",
+                                "target": "lfac_phase",
+                            },
+                            {
+                                "type": "concludes",
+                                "source": "lfac_phase",
+                                "target": "gcn_conclusion",
+                            },
+                        ],
+                    },
                     "stats": {
                         "factors_total": 1,
                         "type_counts": {"claim": 2, "question": 1},
@@ -144,43 +165,144 @@ def _write_empty_gaia_package(root: Path) -> None:
 def _paper_graph_payload_with_skipped_factors() -> dict[str, Any]:
     payload = _paper_graph_payload()
     paper_item = payload["data"]["papers"][0]
-    paper_item["factors"].extend(
+    graph = paper_item["graph"]
+    graph["nodes"].extend(
         [
             {
-                "conclusion": {
-                    "content": "Which phase conversion pathway dominates?",
-                    "global_id": "gq_phase",
-                    "type": "question",
-                },
-                "global_id": "gfac_question_conclusion",
-                "local_id": "lfac_question_conclusion",
-                "premises": [
-                    {
-                        "content": "The 120 C condition increases alpha-FAPbI3 fraction.",
-                        "global_id": "gcn_premise",
-                        "type": "claim",
-                    }
-                ],
+                "id": "lfac_no_premise",
+                "local_id": "lfac_no_premise",
+                "type": "factor",
+                "kind": "reasoning_steps",
             },
             {
-                "conclusion": {
-                    "content": "Annealing at 120 C improves alpha-phase purity.",
-                    "global_id": "gcn_conclusion",
-                    "type": "claim",
-                },
-                "global_id": "gfac_question_premise",
-                "local_id": "lfac_question_premise",
-                "premises": [
-                    {
-                        "content": "Which phase conversion pathway dominates?",
-                        "global_id": "gq_phase",
-                        "type": "question",
-                    }
-                ],
+                "id": "gq_subproblem_only",
+                "type": "question",
+                "kind": "subproblem",
+                "content": "Which phase conversion pathway dominates?",
+            },
+            {
+                "id": "lfac_subproblem_only",
+                "local_id": "lfac_subproblem_only",
+                "type": "factor",
+                "kind": "reasoning_steps",
             },
         ]
     )
+    graph["edges"].extend(
+        [
+            {"type": "concludes", "source": "lfac_no_premise", "target": "gcn_conclusion"},
+            {
+                "type": "subproblem_of",
+                "source": "gq_subproblem_only",
+                "target": "lfac_subproblem_only",
+            },
+            {"type": "concludes", "source": "lfac_subproblem_only", "target": "gcn_conclusion"},
+        ]
+    )
     return payload
+
+
+def _paper_graph_payload_graph_only_dependencies() -> dict[str, Any]:
+    return {
+        "code": 0,
+        "data": {
+            "papers": [
+                {
+                    "paper": {
+                        "doi": "10.1016/j.jpcs.2021.110374",
+                        "en_abstract": "A graph-only fixture paper about FAPbI3 processing.",
+                        "en_title": "Controlling phase and morphology",
+                        "id": "811827932371615744",
+                        "package_id": "paper:811827932371615744",
+                    },
+                    "graph": {
+                        "nodes": [
+                            {
+                                "id": "gcn_prev",
+                                "local_id": "paper:811827932371615744::previous_conclusion",
+                                "type": "claim",
+                                "kind": "conclusion",
+                                "content": (
+                                    "A previous conclusion establishes the useful "
+                                    "annealing temperature window."
+                                ),
+                                "title": "Previous conclusion",
+                            },
+                            {
+                                "id": "gcn_weak",
+                                "local_id": "paper:811827932371615744::humidity_weakness",
+                                "type": "claim",
+                                "kind": "weak_point",
+                                "content": "The method is sensitive to humidity.",
+                                "title": "Humidity weakness",
+                            },
+                            {
+                                "id": "gcn_highlight",
+                                "local_id": "paper:811827932371615744::phase_highlight",
+                                "type": "claim",
+                                "kind": "highlight",
+                                "content": (
+                                    "The 120 C condition has the highest alpha phase fraction."
+                                ),
+                                "title": "Phase highlight",
+                            },
+                            {
+                                "id": "lfac_phase",
+                                "local_id": "lfac_phase",
+                                "type": "factor",
+                                "kind": "reasoning_steps",
+                                "subtype": "noisy_and",
+                                "steps": [
+                                    {
+                                        "reasoning": (
+                                            "Use the prior result, limitation, and "
+                                            "highlight together to support the "
+                                            "annealing conclusion."
+                                        )
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "gcn_result",
+                                "local_id": "paper:811827932371615744::annealing_result",
+                                "type": "claim",
+                                "kind": "conclusion",
+                                "content": "Annealing at 120 C improves alpha-phase purity.",
+                                "title": "Annealing result",
+                            },
+                        ],
+                        "edges": [
+                            {
+                                "type": "previous_conclusion_of",
+                                "source": "gcn_prev",
+                                "target": "lfac_phase",
+                            },
+                            {
+                                "type": "weakpoint_of",
+                                "source": "gcn_weak",
+                                "target": "lfac_phase",
+                            },
+                            {
+                                "type": "highlight_of",
+                                "source": "gcn_highlight",
+                                "target": "lfac_phase",
+                            },
+                            {
+                                "type": "concludes",
+                                "source": "lfac_phase",
+                                "target": "gcn_result",
+                            },
+                        ],
+                    },
+                    "stats": {
+                        "factors_total": 1,
+                        "type_counts": {"claim": 4},
+                        "variables_total": 5,
+                    },
+                }
+            ]
+        },
+    }
 
 
 def test_materialized_lkm_package_can_be_imported_and_referenced(tmp_path: Path) -> None:
@@ -221,6 +343,36 @@ def test_materialized_lkm_package_can_be_imported_and_referenced(tmp_path: Path)
     assert any(qid.startswith(f"lkm:{materialized.import_name}::") for qid in qids)
 
 
+def test_materialize_lkm_paper_builds_depends_on_from_logic_graph_edges(
+    tmp_path: Path,
+) -> None:
+    materialized = materialize_lkm_paper_package(
+        _paper_graph_payload_graph_only_dependencies(),
+        project_root=tmp_path,
+        index_id="bohrium",
+        paper_id="811827932371615744",
+    )
+
+    assert materialized.claim_count == 4
+    assert materialized.dependency_count == 1
+    assert materialized.skipped_factor_count == 0
+    generated_source = (
+        materialized.root / "src" / materialized.import_name / "__init__.py"
+    ).read_text()
+    assert "lfac_phase = depends_on(" in generated_source
+    assert "annealing_result," in generated_source
+    assert "given=[previous_conclusion, humidity_weakness, phase_highlight]" in generated_source
+    assert (
+        "'dependency_edge_types': ['highlight_of', 'previous_conclusion_of', 'weakpoint_of']"
+    ) in generated_source
+
+    formalization = json.loads(
+        (materialized.root / ".gaia" / "formalization_manifest.json").read_text()
+    )
+    assert formalization["dependencies"][0]["kind"] == "depends_on"
+    assert formalization["dependencies"][0]["label"] == "lfac_phase"
+
+
 def test_materialized_lkm_package_can_be_imported_from_uv_sources(
     tmp_path: Path,
 ) -> None:
@@ -231,6 +383,8 @@ def test_materialized_lkm_package_can_be_imported_from_uv_sources(
         paper_id="811827932371615744",
     )
     assert materialized.exported_symbol is not None
+    pyproject = tomllib.loads((materialized.root / "pyproject.toml").read_text())
+    assert pyproject["project"]["dependencies"] == ["gaia-lang>=0.5.0a1"]
 
     consumer = tmp_path / "consumer"
     _write_consumer_package(
@@ -331,7 +485,7 @@ def test_pkg_add_lkm_paper_materializes_and_adds_editable_dependency(
         assert path == "/papers/graph"
         assert json_body is not None
         assert json_body["paper_id"] == "811827932371615744"
-        assert json_body["include"] == ["paper", "variables", "factors", "motivations"]
+        assert "include" not in json_body
         assert index_id == "bohrium"
         return _paper_graph_payload()
 
@@ -364,6 +518,439 @@ def test_pkg_add_lkm_paper_materializes_and_adds_editable_dependency(
     materialized_root = Path(uv_args[3])
     assert materialized_root.exists()
     assert (materialized_root / ".gaia" / "manifests" / "premises.json").exists()
+
+
+def test_pkg_add_lkm_paper_materializes_logic_graph_dependencies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        assert method == "POST"
+        assert path == "/papers/graph"
+        assert json_body is not None
+        assert json_body["paper_id"] == "811827932371615744"
+        assert index_id == "bohrium"
+        return _paper_graph_payload_graph_only_dependencies()
+
+    uv_calls: list[tuple[list[str], Path | None]] = []
+
+    def fake_run_uv(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        uv_calls.append((args, kwargs.get("cwd")))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.setattr(add_mod, "_run_uv", fake_run_uv)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-paper", "811827932371615744"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "4 claims, 0 questions, 1 depends_on scaffold dependencies" in result.output
+    assert len(uv_calls) == 1
+    materialized_root = Path(uv_calls[0][0][3])
+    generated_source = (
+        materialized_root
+        / "src"
+        / "lkm_bohrium_controlling_phase_and_morphology_811827932371615744"
+        / "__init__.py"
+    ).read_text()
+    assert "lfac_phase = depends_on(" in generated_source
+    assert "given=[previous_conclusion, humidity_weakness, phase_highlight]" in generated_source
+
+
+def test_pkg_add_lkm_claim_resolves_backing_paper_and_materializes_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+    calls: list[tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]] = []
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        assert index_id == "bohrium"
+        calls.append((method, path, json_body, params))
+        if path == "/claims/gcn_source/reasoning":
+            assert method == "GET"
+            assert params == {
+                "format": "graph",
+                "max_chains": 10,
+                "sort_by": "comprehensive",
+            }
+            return {
+                "code": 0,
+                "data": {
+                    "reasoning_chains": [
+                        {
+                            "source_package": "paper:811827932371615744",
+                            "graph": {"nodes": [], "edges": []},
+                        }
+                    ]
+                },
+            }
+        assert method == "POST"
+        assert path == "/papers/graph"
+        assert json_body == {"paper_id": "811827932371615744"}
+        return _paper_graph_payload_graph_only_dependencies()
+
+    uv_calls: list[tuple[list[str], Path | None]] = []
+
+    def fake_run_uv(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        uv_calls.append((args, kwargs.get("cwd")))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.setattr(add_mod, "_run_uv", fake_run_uv)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_source"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Resolved lkm:bohrium:claim:gcn_source to lkm:bohrium:paper:811827932371615744" in (
+        result.output
+    )
+    assert "Materialized lkm:bohrium:paper:811827932371615744" in result.output
+    assert [call[:2] for call in calls] == [
+        ("GET", "/claims/gcn_source/reasoning"),
+        ("POST", "/papers/graph"),
+    ]
+    assert len(uv_calls) == 1
+
+
+def test_pkg_add_lkm_claim_resolves_backing_paper_from_nested_papers_block(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+    calls: list[tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]] = []
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        assert index_id == "bohrium"
+        calls.append((method, path, json_body, params))
+        if path == "/claims/gcn_source/reasoning":
+            assert method == "GET"
+            return {
+                "code": 0,
+                "data": {
+                    "reasoning_chains": [{"graph": {"nodes": [], "edges": []}}],
+                    "papers": [
+                        {
+                            "paper": {
+                                "id": "811827932371615744",
+                                "package_id": "paper:811827932371615744",
+                            }
+                        }
+                    ],
+                },
+            }
+        assert method == "POST"
+        assert path == "/papers/graph"
+        assert json_body == {"paper_id": "811827932371615744"}
+        return _paper_graph_payload_graph_only_dependencies()
+
+    def fake_run_uv(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.setattr(add_mod, "_run_uv", fake_run_uv)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_source"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Resolved lkm:bohrium:claim:gcn_source to lkm:bohrium:paper:811827932371615744" in (
+        result.output
+    )
+    assert [call[:2] for call in calls] == [
+        ("GET", "/claims/gcn_source/reasoning"),
+        ("POST", "/papers/graph"),
+    ]
+
+
+def test_pkg_add_lkm_claim_errors_when_reasoning_has_no_backing_paper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        assert method == "GET"
+        assert path == "/claims/gcn_orphan/reasoning"
+        assert index_id == "bohrium"
+        return {"code": 0, "data": {"reasoning_chains": []}}
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_orphan"],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "did not identify a backing paper" in result.output
+
+
+def test_pkg_add_lkm_claim_accepts_top_level_reasoning_chains(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        assert index_id == "bohrium"
+        calls.append((method, path, json_body))
+        if path == "/claims/gcn_old/reasoning":
+            assert method == "GET"
+            return {
+                "code": 0,
+                "reasoning_chains": [
+                    {
+                        "source_package": "paper:811827932371615744",
+                        "graph": {"nodes": [], "edges": []},
+                    }
+                ],
+            }
+        assert method == "POST"
+        assert path == "/papers/graph"
+        assert json_body == {"paper_id": "811827932371615744"}
+        return _paper_graph_payload_graph_only_dependencies()
+
+    def fake_run_uv(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.setattr(add_mod, "_run_uv", fake_run_uv)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_old"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Resolved lkm:bohrium:claim:gcn_old to lkm:bohrium:paper:811827932371615744" in (
+        result.output
+    )
+    assert calls == [
+        ("GET", "/claims/gcn_old/reasoning", None),
+        ("POST", "/papers/graph", {"paper_id": "811827932371615744"}),
+    ]
+
+
+def test_pkg_add_lkm_claim_errors_when_top_level_reasoning_has_no_backing_paper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        assert method == "GET"
+        assert path == "/claims/gcn_old/reasoning"
+        assert index_id == "bohrium"
+        return {
+            "code": 0,
+            "reasoning_chains": [
+                {
+                    "graph": {"nodes": [], "edges": []},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_old"],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "did not identify a backing paper" in result.output
+
+
+def test_pkg_add_lkm_claim_refuses_ambiguous_multi_paper_chains(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Chains rooted in two different papers must not silently resolve to the
+    # first one: the claim's backing paper is ambiguous, so `pkg add` errors
+    # instead of materializing a dependency on a guessed paper.
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+    calls: list[str] = []
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        calls.append(path)
+        assert method == "GET"
+        assert path == "/claims/gcn_shared/reasoning"
+        assert index_id == "bohrium"
+        return {
+            "code": 0,
+            "data": {
+                "reasoning_chains": [
+                    {
+                        "source_package": "paper:811111111111111111",
+                        "graph": {"nodes": [], "edges": []},
+                    },
+                    {
+                        "source_package": "paper:822222222222222222",
+                        "graph": {"nodes": [], "edges": []},
+                    },
+                ]
+            },
+        }
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_shared"],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "did not identify a backing paper" in result.output
+    # Refused before fetching any paper graph.
+    assert calls == ["/claims/gcn_shared/reasoning"]
+
+
+def test_pkg_add_lkm_claim_refuses_ambiguous_chains_with_single_papers_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gaia.cli.commands.add as add_mod
+
+    consumer = tmp_path / "consumer"
+    _write_empty_gaia_package(consumer)
+    calls: list[str] = []
+
+    def fake_run_request(
+        method: str,
+        path: str,
+        *,
+        index_id: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        calls.append(path)
+        assert method == "GET"
+        assert path == "/claims/gcn_shared/reasoning"
+        assert index_id == "bohrium"
+        return {
+            "code": 0,
+            "data": {
+                "reasoning_chains": [
+                    {
+                        "source_package": "paper:811111111111111111",
+                        "graph": {"nodes": [], "edges": []},
+                    },
+                    {
+                        "source_package": "paper:822222222222222222",
+                        "graph": {"nodes": [], "edges": []},
+                    },
+                ],
+                "papers": [
+                    {
+                        "paper": {
+                            "id": "811111111111111111",
+                            "package_id": "paper:811111111111111111",
+                        }
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(add_mod, "run_request", fake_run_request)
+    monkeypatch.chdir(consumer)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--lkm-index", "bohrium", "--lkm-claim", "gcn_shared"],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "did not identify a backing paper" in result.output
+    assert calls == ["/claims/gcn_shared/reasoning"]
 
 
 def test_pkg_add_lkm_paper_warns_when_response_has_no_paper_id(

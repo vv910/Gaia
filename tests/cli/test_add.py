@@ -110,7 +110,7 @@ def test_add_accepts_lkm_claim_flags_as_source_ref():
     result = runner.invoke(app, ["pkg", "add", "--lkm-claim", "gcn_abc123"])
     assert result.exit_code == 1
     assert "lkm:bohrium:claim:gcn_abc123" in result.output
-    assert "gaia search lkm reasoning --index bohrium --claim-id gcn_abc123" in result.output
+    assert "inside the package that should depend on this LKM paper" in result.output
 
 
 def test_add_rejects_conflicting_lkm_inputs_before_registry_lookup():
@@ -126,6 +126,91 @@ def test_add_rejects_conflicting_lkm_inputs_before_registry_lookup():
     )
     assert result.exit_code == 4
     assert "pass either PACKAGE or LKM flags" in result.output
+
+
+@patch("gaia.cli.commands.add._run_uv")
+def test_add_local_gaia_package_as_editable_dependency(mock_uv, tmp_path, monkeypatch):
+    """Gaia pkg add --local installs a local Gaia package into the target package."""
+    consumer = tmp_path / "consumer-gaia"
+    dependency = tmp_path / "source-paper-gaia"
+    consumer.mkdir()
+    dependency.mkdir()
+    _write_gaia_package_root(consumer)
+    _write_gaia_package_root(dependency)
+    monkeypatch.chdir(tmp_path)
+    mock_uv.return_value = MagicMock(returncode=0)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--target", str(consumer), "--local", str(dependency)],
+    )
+
+    assert result.exit_code == 0, result.output
+    mock_uv.assert_called_once_with(
+        ["uv", "add", "--editable", str(dependency.resolve())],
+        cwd=consumer.resolve(),
+    )
+    assert f"Added local Gaia package: {dependency.resolve()}" in result.output
+
+
+@patch("gaia.cli.commands.add._run_uv")
+def test_add_local_relative_path_resolves_from_target_package(mock_uv, tmp_path, monkeypatch):
+    """Relative --local paths resolve from the target package root."""
+    consumer = tmp_path / "consumer-gaia"
+    dependency = consumer / ".gaia" / "lkm_packages" / "source-paper-gaia"
+    consumer.mkdir()
+    dependency.mkdir(parents=True)
+    _write_gaia_package_root(consumer)
+    _write_gaia_package_root(dependency)
+    monkeypatch.chdir(tmp_path)
+    mock_uv.return_value = MagicMock(returncode=0)
+
+    result = runner.invoke(
+        app,
+        [
+            "pkg",
+            "add",
+            "--target",
+            "consumer-gaia",
+            "--local",
+            ".gaia/lkm_packages/source-paper-gaia",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    mock_uv.assert_called_once_with(
+        ["uv", "add", "--editable", str(dependency.resolve())],
+        cwd=consumer.resolve(),
+    )
+    assert f"Added local Gaia package: {dependency.resolve()}" in result.output
+
+
+def test_add_local_requires_local_gaia_package(tmp_path, monkeypatch):
+    """Gaia pkg add --local rejects paths that are not Gaia knowledge packages."""
+    consumer = tmp_path / "consumer-gaia"
+    not_package = tmp_path / "not-package"
+    consumer.mkdir()
+    not_package.mkdir()
+    _write_gaia_package_root(consumer)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "--target", str(consumer), "--local", str(not_package)],
+    )
+
+    assert result.exit_code == 1
+    assert "not a Gaia knowledge package" in result.output
+
+
+def test_add_local_rejects_package_argument():
+    result = runner.invoke(
+        app,
+        ["pkg", "add", "galileo-falling-bodies-gaia", "--local", "./dep"],
+    )
+
+    assert result.exit_code == 4
+    assert "pass --local by itself" in result.output
 
 
 def test_add_rejects_malformed_lkm_ref():

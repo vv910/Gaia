@@ -15,10 +15,7 @@ from urllib.parse import quote
 
 import typer
 
-from gaia.cli.commands.search._results import (
-    SearchOutputFormat,
-    normalize_lkm_reasoning_search,
-)
+from gaia.cli.commands.search.lkm._hints import reasoning_hint
 from gaia.cli.commands.search.lkm._indexes import normalize_lkm_index_id
 from gaia.cli.commands.search.lkm._shared import (
     DEFAULT_LKM_INDEX_ID,
@@ -29,6 +26,10 @@ from gaia.cli.commands.search.lkm._shared import (
     emit,
     run_request,
     validate_lkm_index,
+)
+from gaia.cli.commands.search.lkm.docs import (
+    APIFOX_CLAIM_REASONING_URL,
+    APIFOX_REASONING_SEARCH_URL,
 )
 from gaia.cli.commands.search.lkm.knowledge import RetrievalMode
 
@@ -41,6 +42,14 @@ class SortBy(StrEnum):
 
 
 _MAX_CHAINS_CAP = 100
+
+_REASONING_EPILOG = (
+    "QUERY mode searches whole reasoning chains. --claim-id mode inspects "
+    "chains backing one claim.\n\n"
+    f"Query API docs: {APIFOX_REASONING_SEARCH_URL}\n\n"
+    f"Claim API docs: {APIFOX_CLAIM_REASONING_URL}\n"
+    "Endpoint links: gaia search lkm docs"
+)
 
 
 def reasoning_command(
@@ -111,14 +120,10 @@ def reasoning_command(
         Path | None,
         typer.Option("--out", help="Write JSON to PATH (atomic) instead of stdout."),
     ] = None,
-    output_format: Annotated[
-        SearchOutputFormat,
-        typer.Option(
-            "--format",
-            help="Output format: raw upstream JSON or normalized Gaia search JSON.",
-            case_sensitive=False,
-        ),
-    ] = SearchOutputFormat.GAIA_JSON,
+    no_hint: Annotated[
+        bool,
+        typer.Option("--no-hint", help="Do not print Gaia next-step hints to stderr."),
+    ] = False,
 ) -> None:
     """Search reasoning chains, or fetch them for one claim with --claim-id."""
     # A claim id may arrive bare (``gcn_…``) or in the prefixed form printed
@@ -158,10 +163,12 @@ def reasoning_command(
             sort_by=sort_by,
             index_id=index_id,
         )
-        payload = _normalize(payload)
-        if output_format == SearchOutputFormat.GAIA_JSON:
-            payload = normalize_lkm_reasoning_search(payload, query=claim_id, index_id=index_id)
-        emit(payload, out)
+        emit(
+            payload,
+            out,
+            hint=reasoning_hint(payload, index_id=index_id, claim_id=claim_id),
+            show_hint=not no_hint,
+        )
         return
 
     assert query is not None
@@ -181,9 +188,7 @@ def reasoning_command(
         limit=limit,
         index_id=index_id,
     )
-    if output_format == SearchOutputFormat.GAIA_JSON:
-        payload = normalize_lkm_reasoning_search(payload, query=query, index_id=index_id)
-    emit(payload, out)
+    emit(payload, out, hint=reasoning_hint(payload, index_id=index_id), show_hint=not no_hint)
 
 
 def _looks_like_claim_id(value: str) -> bool:
@@ -261,7 +266,7 @@ def _fetch_claim_reasoning(
     return run_request(
         "GET",
         f"/claims/{encoded}/reasoning",
-        params={"max_chains": max_chains, "sort_by": sort_by.value},
+        params={"format": "graph", "max_chains": max_chains, "sort_by": sort_by.value},
         index_id=index_id,
     )
 
@@ -315,6 +320,7 @@ def _search_reasoning(
 
     body: dict[str, Any] = {
         "query": query,
+        "format": "graph",
         "retrieval_mode": retrieval_mode.value,
         "offset": offset,
         "limit": limit,
@@ -325,26 +331,3 @@ def _search_reasoning(
         body["filters"] = {"paper_ids": list(paper_ids)}
 
     return run_request("POST", "/reasoning/search", json_body=body, index_id=index_id)
-
-
-def _normalize(payload: dict[str, Any]) -> dict[str, Any]:
-    """Flatten the two shapes the API may return into one stable envelope.
-
-    The api-contract and the reference SKILL body disagree on whether the
-    reasoning fields sit under ``data`` or at the top level:
-
-      * ``{code, msg, data: {reasoning_chains, total_chains, ...}}``
-      * ``{code, msg, reasoning_chains, total_chains, papers}``
-
-    We surface ``reasoning_chains`` / ``total_chains`` (and ``papers`` when
-    present) at the top level without dropping the original envelope keys,
-    so downstream consumers find them regardless of source shape.
-    """
-    data = payload.get("data")
-    if isinstance(data, dict) and ("reasoning_chains" in data or "total_chains" in data):
-        merged = dict(payload)
-        for key in ("reasoning_chains", "total_chains", "papers"):
-            if key in data and key not in merged:
-                merged[key] = data[key]
-        return merged
-    return payload

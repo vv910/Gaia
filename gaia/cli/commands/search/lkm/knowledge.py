@@ -13,7 +13,7 @@ from typing import Annotated, Any
 
 import typer
 
-from gaia.cli.commands.search._results import SearchOutputFormat, normalize_lkm_knowledge
+from gaia.cli.commands.search.lkm._hints import knowledge_hint
 from gaia.cli.commands.search.lkm._shared import (
     DEFAULT_LKM_INDEX_ID,
     MAX_KEYWORDS,
@@ -23,6 +23,7 @@ from gaia.cli.commands.search.lkm._shared import (
     run_request,
     validate_lkm_index,
 )
+from gaia.cli.commands.search.lkm.docs import APIFOX_SEARCH_URL
 
 
 class ScopeChoice(StrEnum):
@@ -41,11 +42,13 @@ class RetrievalMode(StrEnum):
 
 
 _KNOWLEDGE_EPILOG = (
-    "Retrieval modes:\n\n"
-    "  semantic  meaning-similarity recall (different wording, same idea)\n"
-    "  lexical   keyword literal recall (must contain a specific term)\n"
-    "  hybrid    both channels fused, auto-degrading on single-channel "
-    "failure (default)\n\n"
+    "Use --reasoning-only when you want conclusion claims backed by reasoning "
+    "chains. It narrows the search to claim conclusions.\n\n"
+    "Best recall: use hybrid mode with --keywords. Faster, lower-recall search: "
+    "use --retrieval-mode semantic. Exact keyword matching only: use "
+    "--retrieval-mode lexical.\n\n"
+    f"API docs: {APIFOX_SEARCH_URL}\n"
+    "Endpoint links: gaia search lkm docs\n\n"
     "Note: `score` is a retrieval ranking signal, not a probability — "
     "do not pass to Gaia priors."
 )
@@ -80,13 +83,20 @@ def knowledge_command(
         bool,
         typer.Option(
             "--reasoning-only",
-            help="Only return claims backed by reasoning chains (narrows scopes/role).",
+            help=("Search conclusion claims backed by reasoning chains (narrows scopes/role)."),
         ),
     ] = False,
     role: Annotated[
         str | None,
         typer.Option("--role", help="Filter by node role (e.g. conclusion / premise)."),
     ] = None,
+    include_paper_enrich: Annotated[
+        bool,
+        typer.Option(
+            "--include-paper-enrich",
+            help="Ask LKM to include enriched paper metadata when the index supports it.",
+        ),
+    ] = False,
     visibility: Annotated[
         str,
         typer.Option("--visibility", help="Visibility filter."),
@@ -103,14 +113,10 @@ def knowledge_command(
         Path | None,
         typer.Option("--out", help="Write JSON to PATH (atomic) instead of stdout."),
     ] = None,
-    output_format: Annotated[
-        SearchOutputFormat,
-        typer.Option(
-            "--format",
-            help="Output format: raw upstream JSON or normalized Gaia search JSON.",
-            case_sensitive=False,
-        ),
-    ] = SearchOutputFormat.GAIA_JSON,
+    no_hint: Annotated[
+        bool,
+        typer.Option("--no-hint", help="Do not print Gaia next-step hints to stderr."),
+    ] = False,
 ) -> None:
     """Search LKM knowledge nodes (POST /search)."""
     index_id = validate_lkm_index(index)
@@ -152,30 +158,12 @@ def knowledge_command(
         body["keywords"] = list(keywords)
     if reasoning_only:
         body["reasoning_only"] = True
+    if include_paper_enrich:
+        body["include_paper_enrich"] = True
     filters: dict[str, Any] = {"visibility": visibility}
     if role:
         filters["role"] = role
     body["filters"] = filters
 
     payload = run_request("POST", "/search", json_body=body, index_id=index_id)
-    if output_format == SearchOutputFormat.GAIA_JSON:
-        payload = normalize_lkm_knowledge(
-            payload,
-            query=query,
-            kind=_query_kind(scopes),
-            index_id=index_id,
-        )
-    emit(payload, out)
-
-
-def _query_kind(scopes: list[ScopeChoice] | None) -> str:
-    """Return the Gaia query kind represented by the requested LKM scopes."""
-    if scopes is None or len(scopes) != 1:
-        return "knowledge"
-    return {
-        ScopeChoice.CLAIM: "claim",
-        ScopeChoice.QUESTION: "question",
-    }[scopes[0]]
-
-
-claims_command = knowledge_command
+    emit(payload, out, hint=knowledge_hint(payload, index_id=index_id), show_hint=not no_hint)
