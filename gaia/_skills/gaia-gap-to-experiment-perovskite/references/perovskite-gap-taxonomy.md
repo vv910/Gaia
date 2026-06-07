@@ -1,15 +1,27 @@
 # Perovskite Gap Taxonomy
 
-Classify each experimental gap into the most specific category below. The
-category determines the default H-vs-Alt framing, readout priorities, and
-required controls. If a gap spans categories, choose one primary category and
-record secondary categories in the card.
+Classify each experimental gap into the most useful category or combination of
+categories below. These labels are soft routing aids for design primitives, not
+hard gates. If a gap spans categories, record multiple matches and use
+`classification_mode: mixed_archetype`. If no family fits, use
+`classification_mode: open_world_design`, synthesize a complete H-vs-Alt card
+from causal uncertainty, LKM/design-memory motifs, and source context, and
+optionally emit an `emergent_gap_family` with `review_required: true`.
+
+To promote an emergent family into the registry, review:
+
+- whether its mechanism axis is distinct from existing axes,
+- whether motifs provide concrete readouts, controls, confounders, closure
+  rules, and non-closure rules,
+- whether motif sources are provenance-retained,
+- whether p-i-n translation boundaries are explicit, and
+- whether no wet-lab recipe details leak into outputs.
 
 ## 1. Passivation / Recombination Gap
 
 Typical uncertainty:
 
-FF or Voc improvement is attributed to defect passivation, but
+A performance improvement is attributed to defect passivation, but
 transport/contact/morphology alternatives remain plausible.
 
 Default H:
@@ -40,29 +52,32 @@ Core discriminating logic:
 Separate reduced non-radiative recombination from improved contact selectivity
 or changed series resistance.
 
-## 2. FF / Transport / Contact Gap
+## 2. Aggregate Performance / Transport / Contact Gap
 
 Typical uncertainty:
 
-FF improvement may arise from reduced recombination, reduced series resistance,
-improved shunt resistance, improved charge extraction, or changed contact
-selectivity.
+An aggregate performance metric improvement, such as FF, PCE, Voc, hysteresis,
+or stability-retention gain, may arise from several competing branches:
+reduced recombination, changed series or shunt behavior, improved charge
+extraction, altered contact selectivity, measurement-history effects, or
+covariate changes.
 
 Default H:
 
-The intervention improves charge transport or contact selectivity in a way that
-directly increases FF.
+The intervention improves the target transport/contact or performance-limiting
+branch in a way that explains the affected Gaia claim.
 
 Default Alt:
 
-The FF change is secondary to recombination suppression, shunt changes,
-morphology, or measurement-condition differences.
+The aggregate metric change is secondary to another branch, such as
+recombination suppression, shunt changes, morphology, or measurement-condition
+differences.
 
 Candidate readouts:
 
 - Rs/Rsh extraction
 - Suns-Voc
-- intensity-dependent JV/FF
+- intensity-dependent JV or target-metric response
 - dark JV
 - EIS
 - mobility proxies
@@ -72,6 +87,12 @@ Candidate readouts:
 Core discriminating logic:
 
 Distinguish bulk/interface recombination from transport/contact resistance.
+Use the generic `gap_resolution_strategy` to decompose the aggregate
+performance metric into competing branches, such as recombination/passivation,
+series or shunt behavior, contact effects, transport barriers, or scan-history
+artifacts where relevant. No single aggregate metric improvement closes a
+mechanism gap. If the strategy cannot distinguish the branches, keep the
+mechanism conclusion bounded and do not close the gap.
 
 ## 3. Ion Migration / Hysteresis Gap
 
@@ -139,8 +160,9 @@ inconsistent stress protocols.
 
 Typical uncertainty:
 
-Voc/FF improvement is attributed to better energy alignment, but defect
-passivation or morphology changes may be the real cause.
+A voltage, transport, or aggregate performance improvement is attributed to
+better energy alignment, but defect passivation or morphology changes may be
+the real cause.
 
 Default H:
 
@@ -149,7 +171,7 @@ improves carrier selectivity and reduces contact loss.
 
 Default Alt:
 
-The Voc/FF gain is mainly caused by passivation, morphology, or crystallization
+The gain is mainly caused by passivation, morphology, or crystallization
 effects rather than energetic alignment.
 
 Candidate readouts:
@@ -197,12 +219,49 @@ Core discriminating logic:
 Separate bulk morphology/crystallization effects from interface-specific
 chemical effects.
 
+## 7. Causal Attribution / Multifunctional Passivator Gap
+
+Typical uncertainty:
+
+A multifunctional passivator or interfacial molecule is credited as the sole
+mechanistic cause even though passivation, crystallinity, morphology,
+hydrophobicity, contact energetics, and recombination/trap changes may all vary
+together.
+
+Default H:
+
+The proposed functional mechanism, such as defect passivation, is the dominant
+causal link for the affected Gaia claim.
+
+Default Alt:
+
+The apparent effect is caused by morphology, crystallinity, hydrophobicity,
+contact energetics, recombination/trap changes, or a coupled combination rather
+than the proposed sole mechanism.
+
+Candidate readouts:
+
+- Functional analog control class
+- Morphology and crystallinity bounding readouts
+- Hydrophobicity or barrier-effect screens
+- Contact energetics comparison
+- Recombination/trap-sensitive readouts
+
+Core discriminating logic:
+
+Use design-level functional analog controls to bound covariates. The analog
+control is a class of comparator, not a synthesis recipe. If an analog also
+changes multiple variables, it cannot close the causal gap; it only narrows the
+follow-up hypothesis space.
+
 ## Classification Rules
 
 - If the Gaia gap names Voc or non-radiative recombination, start with
-  passivation/recombination unless FF/contact evidence dominates.
-- If the gap names FF, series resistance, shunt resistance, extraction, or
-  contact selectivity, start with FF/transport/contact.
+  passivation/recombination unless aggregate performance/contact evidence
+  dominates.
+- If the gap names an aggregate performance metric, series resistance, shunt
+  resistance, extraction, or contact selectivity, start with aggregate
+  performance/transport/contact.
 - If the gap names hysteresis, preconditioning, scan rate, or ion migration,
   use ion migration/hysteresis.
 - If the gap names retention, degradation, stress, T80, or outdoor operation,
@@ -211,3 +270,7 @@ chemical effects.
   contact energetics, use energy-level alignment.
 - If the gap names grain size, crystallinity, phase purity, orientation, or
   film coverage, use crystallization/morphology.
+- If the gap names sole-cause attribution, passivation not isolated,
+  morphology/contact alternative, hydrophobicity alternative, multifunctional
+  passivator, or coupled mechanism, use causal attribution/multifunctional
+  passivator.

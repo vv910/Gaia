@@ -12,6 +12,19 @@ comparison. SQLite rows are literature precedents, not mechanism proofs.
 Performance deltas can motivate or constrain H-vs-Alt hypotheses, but they do
 not prove a mechanism by themselves.
 
+Hard role boundary:
+
+- SQLite must not be the primary source for mechanism attribution.
+- SQLite tier1/tier2/tier3 evidence may change experiment priority,
+  comparability, precedent strength, readout candidates, and risk notes only.
+- SQLite deltas must never close a mechanism gap by themselves.
+- If SQLite patterns conflict with Gaia package reasoning or LKM reasoning,
+  preserve the H-vs-Alt outcome matrix, mark `sqlite_lkm_conflicts`, and do not
+  let SQLite override the mechanism chain.
+- Every card must include `sqlite_role` with this meaning: SQLite is for
+  precedent discovery, stack/intervention matching, and paired delta background
+  only; it is not mechanism proof.
+
 For every experimental gap, query this database before drafting the experiment
 card. If the database cannot be opened, stop and report the blocker. Do not
 replace it with LKM, web search, or package-local citations.
@@ -128,8 +141,9 @@ summary in `database_queries_run`:
    mechanism keywords.
 4. Stability query: required when the gap concerns stability, degradation, or
    retention.
-5. FF/contact query: required when the gap concerns FF, transport,
-   recombination, hysteresis, contacts, or charge extraction.
+5. Performance/contact query: required when the gap concerns an aggregate
+   performance metric, transport, recombination, hysteresis, contacts, or
+   charge extraction.
 
 Use parameterized SQL for executable queries. Broad `LIKE` matching is allowed
 for literature retrieval, but record the terms used and avoid presenting a
@@ -338,6 +352,10 @@ support H, support Alt, are mixed, or are too sparse. If SQLite precedent
 patterns conflict with LKM mechanism evidence, report the conflict explicitly
 in both `database_precedents` and `lkm_evidence_summary`, lower confidence, and
 design the experiment around resolving the conflict.
+
+Do not write "SQLite proves", "database confirms the mechanism", or equivalent
+mechanism-closure language. A SQLite pattern can raise priority or motivate a
+readout; it cannot supply the causal mechanism attribution.
 
 If SQLite is available but parse coverage is low, continue only with an
 explicit `database_confidence` limitation in each affected card. The limitation
