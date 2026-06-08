@@ -604,12 +604,46 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
     return payload
 
 
-def extract_gaps(analysis_text: str) -> list[Gap]:
-    """Extract experimental gaps from ``ANALYSIS.md`` text."""
+def extract_gaps(analysis_text: str, supplemental_texts: list[str] | None = None) -> list[Gap]:
+    """Extract experimental gaps from package analysis plus optional published text."""
+    structured_blocks = first_structured_gap_blocks(analysis_text, supplemental_texts or [])
+    if structured_blocks:
+        return build_gaps_from_blocks(structured_blocks)
+
+    blocks = extract_freeform_gap_blocks(analysis_text)
+    if not blocks:
+        blocks = [
+            line.strip()
+            for line in analysis_text.splitlines()
+            if "experiment" in line.lower() or "validation" in line.lower()
+        ]
+
+    return build_gaps_from_blocks(blocks)
+
+
+def first_structured_gap_blocks(analysis_text: str, supplemental_texts: list[str]) -> list[str]:
+    """Return the first available structured gap block source."""
     table_gaps = extract_evidence_gap_table_rows(analysis_text)
     if table_gaps:
-        return [build_gap(index, block) for index, block in enumerate(table_gaps, start=1)]
+        return table_gaps
+    for supplemental_text in supplemental_texts:
+        supplemental_table_gaps = extract_evidence_gap_table_rows(supplemental_text)
+        if supplemental_table_gaps:
+            return supplemental_table_gaps
+    for supplemental_text in supplemental_texts:
+        experimental_gap_bullets = extract_experimental_gap_bullets(supplemental_text)
+        if experimental_gap_bullets:
+            return experimental_gap_bullets
+    return []
 
+
+def build_gaps_from_blocks(blocks: list[str]) -> list[Gap]:
+    """Build normalized gaps from extracted text blocks."""
+    return [build_gap(index, block) for index, block in enumerate(blocks, start=1)]
+
+
+def extract_freeform_gap_blocks(analysis_text: str) -> list[str]:
+    """Extract freeform ``Evidence Gap`` paragraphs from analysis text."""
     blocks: list[str] = []
     current: list[str] = []
     in_gap = False
@@ -632,15 +666,100 @@ def extract_gaps(analysis_text: str) -> list[Gap]:
                 current.append(line)
     if current:
         blocks.append(" ".join(current).strip())
+    return blocks
 
-    if not blocks:
-        blocks = [
-            line.strip()
-            for line in analysis_text.splitlines()
-            if "experiment" in line.lower() or "validation" in line.lower()
-        ]
 
-    return [build_gap(index, block) for index, block in enumerate(blocks, start=1)]
+def extract_experimental_gap_bullets(markdown_text: str) -> list[str]:
+    """Extract bullets under an ``Experimental gaps`` Markdown subsection."""
+    section_lines = extract_markdown_subsection_lines(
+        markdown_text,
+        heading_contains="experimental gaps",
+        parent_heading_contains="evidence gaps",
+    )
+    return extract_markdown_bullets(
+        section_lines,
+        source_label="README Experimental gaps",
+    )
+
+
+def extract_markdown_subsection_lines(
+    markdown_text: str, *, heading_contains: str, parent_heading_contains: str | None = None
+) -> list[str]:
+    """Return raw lines inside one Markdown subsection, optionally under a parent."""
+    lines: list[str] = []
+    in_parent = parent_heading_contains is None
+    in_target = False
+    parent_heading_level = 0
+    target_heading_level = 0
+    for raw_line in markdown_text.splitlines():
+        line = raw_line.strip()
+        heading = parse_markdown_heading(line)
+        if heading is None:
+            if in_target:
+                lines.append(line)
+            continue
+
+        level, title = heading
+        if parent_heading_contains and parent_heading_contains in title:
+            in_parent = True
+            in_target = False
+            parent_heading_level = level
+            continue
+        if parent_heading_contains and in_parent and level <= parent_heading_level:
+            if in_target:
+                break
+            in_parent = False
+        if in_parent and heading_contains in title:
+            in_target = True
+            target_heading_level = level
+            continue
+        if in_target and level <= target_heading_level:
+            break
+    return lines
+
+
+def parse_markdown_heading(line: str) -> tuple[int, str] | None:
+    """Parse a Markdown ATX heading into ``(level, normalized_title)``."""
+    heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+    if heading is None:
+        return None
+    return len(heading.group(1)), strip_markdown_inline(heading.group(2)).lower()
+
+
+def extract_markdown_bullets(lines: list[str], *, source_label: str) -> list[str]:
+    """Extract and sanitize Markdown bullets from already selected lines."""
+    gaps: list[str] = []
+    current: list[str] = []
+
+    def flush_current() -> None:
+        if not current:
+            return
+        text = " ".join(current).strip()
+        current.clear()
+        if text:
+            gaps.append(f"Evidence Gap: {text} Source: {source_label}.")
+
+    for line in lines:
+        if not line:
+            flush_current()
+            continue
+        if line.startswith("<") and line.endswith(">"):
+            continue
+
+        bullet = re.match(r"^(?:[-*+]|\d+\.)\s+(.*)$", line)
+        if bullet:
+            flush_current()
+            current.append(bullet.group(1).strip())
+        elif current:
+            current.append(line)
+
+    flush_current()
+    return [sanitize_extracted_gap_text(gap) for gap in gaps]
+
+
+def strip_markdown_inline(text: str) -> str:
+    """Remove simple inline Markdown markup from a heading string."""
+    return re.sub(r"[*_`#<>/]", "", text).strip()
 
 
 def extract_evidence_gap_table_rows(analysis_text: str) -> list[str]:
@@ -691,7 +810,8 @@ def split_markdown_table_row(line: str) -> list[str]:
 
 def build_gap(index: int, text: str) -> Gap:
     """Build a normalized gap using Stage A lightweight classification."""
-    classifier = classify_gap_stage_a(text)
+    sanitized_text = sanitize_extracted_gap_text(text)
+    classifier = classify_gap_stage_a(sanitized_text)
     gap_family = classifier.card_archetype
     gap_type = archetype_gap_type(gap_family)
     template_id = archetype_template_id(gap_family)
@@ -699,12 +819,37 @@ def build_gap(index: int, text: str) -> Gap:
     alternative = default_alternative_for_archetype(gap_family)
     return Gap(
         gap_id=f"experimental_gap_{index:02d}",
-        text=text,
+        text=sanitized_text,
         gap_family=gap_family,
         gap_type=gap_type,
         template_id=template_id,
         hypothesis=hypothesis,
         alternative=alternative,
+    )
+
+
+def sanitize_extracted_gap_text(text: str) -> str:
+    """Remove exact operational dose/concentration details from extracted gaps."""
+    sanitized = text
+    sanitized = re.sub(
+        r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mg\s+ml\^-1|"
+        r"mM|mm|mol\s*/\s*l|M)\b",
+        "reported-dose",
+        sanitized,
+        flags=re.I,
+    )
+    sanitized = re.sub(
+        r"\b\d+(?:\.\d+)?\s*(?:mol\s*%|mol%)\b",
+        "reported-dose",
+        sanitized,
+        flags=re.I,
+    )
+    return re.sub(
+        r"\b\d+(?:\.\d+)?\s*%\s+(?=(?:excess|PbI2|PbCl2|PbBr2|PbX2|"
+        r"Pb\(SCN\)2|NH4SCN|MACl|salt|additive)\b)",
+        "reported-dose ",
+        sanitized,
+        flags=re.I,
     )
 
 
@@ -2737,6 +2882,11 @@ def build_open_world_design_template(
 ) -> dict[str, Any]:
     """Synthesize a full experiment card without a hard family template."""
     uncertainty = extract_causal_uncertainty(gap)
+    hypothesis_h, alternative_alt, discriminating_observation = synthesize_open_world_h_alt(
+        uncertainty,
+        context,
+        classifier,
+    )
     motif_readouts = merge_lists(
         *(motif.primary_readouts for motif in motifs),
         lkm_design_reasoning.get("readout_classes", []),
@@ -2773,18 +2923,9 @@ def build_open_world_design_template(
         "gap_type_specific_title": "Open-world mechanism-discrimination design",
         "gap_type": "open-world mechanism-discrimination gap",
         "scientific_uncertainty": uncertainty,
-        "hypothesis_H": (
-            f"The {context.get('source_package', 'source-package')} claim is explained by the candidate mechanism branch "
-            f"described in the gap: {uncertainty}"
-        ),
-        "alternative_Alt": (
-            "A competing mechanism, architecture-specific effect, measurement artifact, "
-            "or uncontrolled covariate explains the same observation."
-        ),
-        "discriminating_observation": (
-            "A motif-synthesized readout/control set separates the candidate mechanism "
-            "branch from the strongest competing branch while preserving source context."
-        ),
+        "hypothesis_H": hypothesis_h,
+        "alternative_Alt": alternative_alt,
+        "discriminating_observation": discriminating_observation,
         "variables_to_vary": [
             "source-package intervention axis",
             "candidate mechanism axis",
@@ -2861,7 +3002,72 @@ def extract_causal_uncertainty(gap: Gap) -> str:
     """Extract a concise causal uncertainty from the gap text."""
     text = re.sub(r"\s+", " ", gap.text).strip()
     text = re.sub(r"^Evidence Gap:\s*", "", text, flags=re.I)
+    text = re.sub(r"\s+Source:\s+[^.]+(?:\.\s*)?$", "", text, flags=re.I)
     return text[:260] if text else "Unregistered mechanism uncertainty from Gaia gap."
+
+
+def synthesize_open_world_h_alt(
+    uncertainty: str,
+    context: dict[str, Any],
+    classifier: GapClassifierOutput,
+) -> tuple[str, str, str]:
+    """Build gap-specific open-world H/Alt text from mechanism terms."""
+    source = stringify(context.get("source_package", "source-package"))
+    lowered = uncertainty.lower()
+    if "pbcl2" in lowered and "pbi2" in lowered:
+        return (
+            f"In {source}, the PbX2 conclusion is controlled by separable chloride-source, "
+            "residual-PbI2/Pb-rich phase-location, and additive/cation-chemistry axes; "
+            "a matched design should show these axes moving distinct phase, composition, "
+            "recombination, interface-loss, and stability readouts.",
+            "The apparent PbX2 window is instead dominated by co-varying morphology, "
+            "stoichiometry, contact/interface loss, absorber-family, or architecture "
+            "differences, so PbCl2, residual PbI2, and chloride-source effects cannot be "
+            "causally separated.",
+            "H is favored only if independent factor changes split chloride distribution "
+            "from residual-PbI2/Pb-rich phase location and those split readouts track the "
+            "affected recombination/interface/stability conclusions; Alt is favored if "
+            "the readouts move together with morphology, contact, or architecture covariates.",
+        )
+    if "depth-resolved" in lowered or "residual pbi2" in lowered:
+        return (
+            f"In {source}, depth/location-resolved Pb/halide and residual-phase readouts "
+            "can distinguish chloride-source effects from residual-PbI2 or mixed "
+            "lead-halide residue effects when paired to recombination, device, and "
+            "stability readouts on the same comparison set.",
+            "The same aggregate behavior can be explained by unresolved phase-location "
+            "co-variation, morphology changes, contact-mediated recombination, or "
+            "measurement-proxy mismatch rather than by a separable chloride-versus-residue "
+            "mechanism.",
+            "H is favored when spatial composition and residual-phase classes separate "
+            "before the recombination/device/stability readouts are interpreted; Alt is "
+            "favored when phase/location signals remain coupled or fail to predict the "
+            "affected device and stability outcomes.",
+        )
+    if "boundary" in lowered or "positive point" in lowered or "high-dose" in lowered:
+        return (
+            f"In {source}, reported positive PbX2/additive windows remain valid only "
+            "inside bounded process and composition regions; matched boundary tests should "
+            "identify where phase residue, morphology, interface loss, or stability "
+            "penalties begin.",
+            "The positive point may be a local or architecture-specific observation with "
+            "no transferable upper boundary, or the apparent boundary may be caused by "
+            "processing, absorber-family, contact, or measurement-selection covariates.",
+            "H is favored when boundary-condition readouts show a coherent transition "
+            "from beneficial window to named negative mechanism; Alt is favored when "
+            "performance changes are disconnected from phase, morphology, interface, or "
+            "stability boundary readouts.",
+        )
+    return (
+        f"In {source}, the gap is resolved by the mechanism axis "
+        f"`{classifier.primary_mechanism_axis}` named by the Gaia/LKM/design evidence: "
+        f"{uncertainty}",
+        f"The observation is instead explained by {classifier.alternative_class}, "
+        "architecture translation, or proxy-only measurement logic.",
+        "H is favored when primary readouts change with the proposed mechanism axis under "
+        "bounded controls; Alt is favored when the same observations follow the listed "
+        "competing branch or remain proxy-only.",
+    )
 
 
 def build_card(
@@ -4929,6 +5135,7 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     analysis_path = package / "ANALYSIS.md"
+    readme_path = package / "README.md"
     if not analysis_path.exists():
         write_preflight(output_dir, ["ANALYSIS.md"], [str(analysis_path)])
         return 2
@@ -4950,11 +5157,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    gaps = extract_gaps(analysis_path.read_text(encoding="utf-8"))
+    supplemental_texts = [readme_path.read_text(encoding="utf-8")] if readme_path.exists() else []
+    gaps = extract_gaps(analysis_path.read_text(encoding="utf-8"), supplemental_texts)
     if not gaps:
-        write_preflight(output_dir, ["experimental_gap"], [str(analysis_path)])
+        checked = [str(analysis_path)]
+        if readme_path.exists():
+            checked.append(str(readme_path))
+        write_preflight(output_dir, ["experimental_gap"], checked)
         return 2
 
+    inputs_read = [str(analysis_path), str(context_path)]
+    if readme_path.exists():
+        inputs_read.append(str(readme_path))
     dotenv_paths = [
         package / ".env",
         output_dir / ".env",
@@ -4966,7 +5180,7 @@ def main(argv: list[str] | None = None) -> int:
         "strict_preflight_passed": True,
         "package": str(package),
         "package_mode": package_mode,
-        "inputs_read": [str(analysis_path), str(context_path)],
+        "inputs_read": inputs_read,
         "context_missing_preflight_generated": False,
         "sqlite_available": args.sqlite_db.exists(),
         "lkm_credential_loaded": bool(lkm_credential.access_key) and not args.skip_lkm,

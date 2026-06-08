@@ -292,6 +292,85 @@ def test_generator_splits_evidence_gap_table_rows(tmp_path: Path, monkeypatch) -
     assert "causal attribution" in cards[1]["gap_type"]
 
 
+def test_generator_uses_readme_experimental_gaps_when_analysis_has_no_structured_gaps(
+    tmp_path: Path, monkeypatch
+) -> None:
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package(package)
+    (package / "ANALYSIS.md").write_text(
+        "# Analysis\n\nThe synthesis summarizes condition-dependent mechanism boundaries.",
+        encoding="utf-8",
+    )
+    (package / "README.md").write_text(
+        "\n".join(
+            [
+                "# Package",
+                "",
+                "## Evidence Gaps",
+                "",
+                "<details>",
+                "<summary>Evidence Gaps & Future Work</summary>",
+                "",
+                "### Experimental gaps",
+                "",
+                "- Run factorial PbCl2/PbI2/MACl/additive series on the same device stack.",
+                "- Measure depth-resolved Cl/Pb/I composition and quantified residual PbI2",
+                "  on the same samples used for recombination and device readouts.",
+                "- Add matched high-dose boundary tests where a paper currently reports only",
+                "  a positive point, such as 0.15 M PbCl2 or 4% excess PbI2.",
+                "",
+                "### Computational gaps",
+                "",
+                "- This non-experimental bullet should not become a card.",
+                "</details>",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    experiments = _load_yaml(output / "experiments.yaml")
+    cards = experiments["experiments"]
+    assert [card["gap_id"] for card in cards] == [
+        "experimental_gap_01",
+        "experimental_gap_02",
+        "experimental_gap_03",
+    ]
+    rendered_yaml = (output / "experiments.yaml").read_text(encoding="utf-8")
+    assert "Computational gaps" not in rendered_yaml
+    assert "0.15 M" not in rendered_yaml
+    assert "4% excess" not in rendered_yaml
+    retrieval = _load_yaml(output / "retrieval_evidence.yaml")
+    assert str(package / "README.md") in retrieval["preflight"]["inputs_read"]
+
+
+def test_open_world_h_alt_mentions_gap_specific_pbx2_branches() -> None:
+    classifier = generator.classify_gap_stage_a(
+        "Run factorial PbCl2/PbI2/MACl/additive series on the same device stack."
+    )
+
+    hypothesis, alternative, observation = generator.synthesize_open_world_h_alt(
+        "Run factorial PbCl2/PbI2/MACl/additive series on the same device stack.",
+        {"source_package": "pvsk-gaia"},
+        classifier,
+    )
+
+    combined = f"{hypothesis} {alternative} {observation}"
+    assert "candidate mechanism branch" not in combined
+    assert "chloride-source" in combined
+    assert "residual-PbI2" in combined
+    assert "morphology" in combined
+
+
 def test_missing_context_writes_preflight_only(tmp_path: Path, monkeypatch) -> None:
     package = tmp_path / "pkg"
     output = tmp_path / "out"
