@@ -90,18 +90,41 @@ def _valid_card() -> dict[str, object]:
         "minimal_discriminating_matrix": [
             {
                 "matrix_id": "matrix_01_intervention_family_axis",
+                "row_label": "intervention family isolation",
                 "factor_group": "intervention_family_axis",
                 "semantic_levels": [
                     "matched no-intervention baseline",
                     "Lewis-base interfacial modulator",
                 ],
+                "evidence_basis": (
+                    "intervention family isolation: package-local interface evidence."
+                ),
+                "source_labels": ["claim_interface_mechanism"],
+                "variable_role": "separate intervention branch from comparator chemistry",
+                "held_constant_design_assumptions": [
+                    "same absorber family",
+                    "same intervention location",
+                    "same measurement history",
+                ],
+                "discriminating_readouts": [
+                    "phase/residual-species readout class",
+                    "trap/nonradiative-recombination proxy class",
+                    "same-population PCE/FF/Voc/Jsc distribution",
+                ],
+                "h_alt_interpretation": {
+                    "supports_H": "intervention row supports the H branch",
+                    "supports_Alt": "comparator row supports the Alt branch",
+                    "mixed_or_unresolved": "intervention and comparator branches co-vary",
+                },
+                "closure_rule": "Close only with same-sample H-vs-Alt readout separation.",
+                "non_closure_rule": "Do not close when intervention and covariates co-vary.",
                 "held_constant": ["absorber family", "intervention location"],
                 "same_sample_readout_bundle": [
                     "phase_composition",
+                    "residual_phase_quantification",
                     "recombination_trap",
-                    "transport_contact",
                     "device_metrics",
-                    "stability",
+                    "stability_readout_history",
                 ],
                 "discriminating_role": "separate H from Alt",
                 "closure_dependency": "same-sample readout bundle separates H from Alt",
@@ -129,10 +152,14 @@ def _valid_card() -> dict[str, object]:
         },
         "same_sample_measurement_bundle": {
             "phase_composition": ["phase/residual-species readout class"],
+            "residual_phase_quantification": [
+                "quantified residual or secondary phase-fraction class"
+            ],
             "recombination_trap": ["trap/nonradiative-recombination proxy class"],
             "transport_contact": ["contact/barrier/selectivity diagnostic class"],
             "device_metrics": ["same-population PCE/FF/Voc/Jsc distribution"],
             "stability": ["operational or environmental stability readout class"],
+            "stability_readout_history": ["stability/readout-history class"],
             "bundle_rule": "Interpret metrics only after same-sample readout coupling.",
             "primary_axis": "dopant_additive_chemical_interaction",
         },
@@ -156,7 +183,15 @@ def _valid_card() -> dict[str, object]:
             "gap_claim_belief": 0.42,
             "source_dsl_nodes": ["claim_interface_mechanism"],
             "evidence_table_rows_used": 0,
-            "update_targets": ["support_H", "support_Alt", "mixed_or_unresolved"],
+            "outcome_update_states": ["support_H", "support_Alt", "mixed_or_unresolved"],
+            "update_targets": [
+                "interface_branch_isolated",
+                "morphology_normalization_survives",
+            ],
+            "readable_update_labels": [
+                "interface_branch_isolated",
+                "morphology_normalization_survives",
+            ],
             "update_rule": "Update only according to the outcome matrix.",
         },
         "matrix_closure_rules": [
@@ -965,6 +1000,90 @@ def test_gap_resolution_strategy_rejects_mandatory_ff_special_case() -> None:
     assert any("must not hard-code FF" in error for error in result.errors)
 
 
+def test_aggregate_matrix_rejects_broad_axis_only_rows() -> None:
+    card = _valid_card()
+    card["package_mode"] = "aggregate_corpus"
+    card["planning_level"] = "aggregate_roadmap"
+    card["source_device_context"] = {
+        "package_mode": "aggregate_corpus",
+        "corpus_level_distribution": "mixed PSC corpus",
+        "dominant_architecture_families": ["n-i-p", "p-i-n"],
+    }
+    card["minimal_discriminating_matrix"] = [
+        {
+            "matrix_id": "matrix_01_intervention_family_axis",
+            "factor_group": "intervention_family_axis",
+            "semantic_levels": ["baseline", "intervention family"],
+            "held_constant": ["absorber family"],
+            "same_sample_readout_bundle": ["phase_composition"],
+            "discriminating_role": "broad axis",
+            "closure_dependency": "bundle",
+        },
+        {
+            "matrix_id": "matrix_02_mechanism_axis",
+            "factor_group": "mechanism_axis",
+            "semantic_levels": ["H", "Alt"],
+            "held_constant": ["absorber family"],
+            "same_sample_readout_bundle": ["phase_composition"],
+            "discriminating_role": "broad axis",
+            "closure_dependency": "bundle",
+        },
+    ]
+
+    result = validator.validate_payload([card])
+
+    assert any("aggregate plans require concrete semantic rows" in error for error in result.errors)
+    assert any("only broad factor axes" in error for error in result.errors)
+
+
+def test_synthesis_plan_rows_require_all_six_fields() -> None:
+    card = _valid_card()
+    assert isinstance(card["package_evidence_brief"], dict)
+    card["package_evidence_brief"]["inputs_read"] = [
+        "ANALYSIS.md",
+        "SYNTHESIS_PLAN.md",
+    ]
+    card["package_evidence_brief"]["synthesis_evidence_table"] = [
+        {
+            "candidate_synthesis_claim": "claim text",
+            "source_labels": ["claim_label"],
+            "evidence_class": "direct",
+        }
+    ]
+
+    result = validator.validate_payload([card])
+
+    assert any("direction" in error for error in result.errors)
+    assert any("confidence_tier" in error for error in result.errors)
+    assert any("over_counting_risk" in error for error in result.errors)
+
+
+def test_same_sample_bundle_requires_new_mechanism_classes() -> None:
+    card = _valid_card()
+    assert isinstance(card["same_sample_measurement_bundle"], dict)
+    del card["same_sample_measurement_bundle"]["residual_phase_quantification"]
+    del card["same_sample_measurement_bundle"]["stability_readout_history"]
+
+    result = validator.validate_payload([card])
+
+    assert any("residual_phase_quantification" in error for error in result.errors)
+    assert any("stability_readout_history" in error for error in result.errors)
+
+
+def test_gaia_update_labels_reject_outcome_states_and_opaque_ids() -> None:
+    card = _valid_card()
+    assert isinstance(card["gaia_evidence_node_mapping"], dict)
+    card["gaia_evidence_node_mapping"]["readable_update_labels"] = [
+        "E1",
+        "support_H",
+    ]
+
+    result = validator.validate_payload([card])
+
+    assert any("opaque update label" in error for error in result.errors)
+    assert any("is an outcome state" in error for error in result.errors)
+
+
 def test_causal_attribution_gap_requires_analog_control_logic() -> None:
     card = _valid_card()
     card["gap_type"] = "causal attribution gap"
@@ -1010,6 +1129,30 @@ def test_failed_lkm_call_creates_diagnostics_and_lowers_confidence() -> None:
 def test_no_operational_wet_lab_recipe_is_emitted() -> None:
     card = _valid_card()
     card["variables_to_vary"] = ["spin coat in DMF at 1000 rpm"]
+
+    result = validator.validate_payload([card])
+
+    assert any("operational wet-lab recipe detail" in error for error in result.errors)
+
+
+def test_no_exact_recipe_numbers_in_synthesis_table_or_source_labels() -> None:
+    card = _valid_card()
+    assert isinstance(card["package_evidence_brief"], dict)
+    card["package_evidence_brief"]["inputs_read"] = ["ANALYSIS.md", "SYNTHESIS_PLAN.md"]
+    card["package_evidence_brief"]["synthesis_evidence_table"] = [
+        {
+            "candidate_synthesis_claim": "2 mol% PbCl2 gives the best reported point.",
+            "source_labels": [
+                "pbcl2_precursor_015m_replaces_pbi2",
+                "best_device_three_percent_metrics",
+                "recipe2_6_7_best_recipe_grid",
+            ],
+            "evidence_class": "direct",
+            "direction": "positive",
+            "confidence_tier": "strong",
+            "over_counting_risk": "one workflow",
+        }
+    ]
 
     result = validator.validate_payload([card])
 

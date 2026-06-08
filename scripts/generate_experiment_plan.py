@@ -46,6 +46,31 @@ REQUIRED_CONTEXT_FIELDS = (
 
 DEFAULT_LAB_REFERENCE_STACK = "ITO / SAM / perovskite / C60 / BCP / Ag"
 
+SYNTHESIS_EVIDENCE_TABLE_FIELDS = (
+    "candidate_synthesis_claim",
+    "source_labels",
+    "evidence_class",
+    "direction",
+    "confidence_tier",
+    "over_counting_risk",
+)
+
+SEMANTIC_MATRIX_BUNDLE_KEYS = (
+    "phase_composition",
+    "residual_phase_quantification",
+    "recombination_trap",
+    "device_metrics",
+    "stability_readout_history",
+)
+
+PBX2_REQUIRED_UPDATE_LABELS = (
+    "chloride_distribution_isolated",
+    "pb_rich_residue_effect_isolated",
+    "morphology_normalization_survives",
+    "wrong_location_residual_phase_penalty",
+    "high_boundary_negative_case_confirmed",
+)
+
 MECHANISM_AXES = (
     "recombination_defect_passivation",
     "charge_extraction_collection",
@@ -835,13 +860,13 @@ def sanitize_extracted_gap_text(text: str) -> str:
     sanitized = text
     sanitized = re.sub(
         r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mg\s+ml\^-1|"
-        r"mM|mm|mol\s*/\s*l|M)\b",
+        r"mM|mm|mol\s*/\s*l|M)(?=\b|[^A-Za-z0-9_])",
         "reported-dose",
         sanitized,
         flags=re.I,
     )
     sanitized = re.sub(
-        r"\b\d+(?:\.\d+)?\s*(?:mol\s*%|mol%)\b",
+        r"\b\d+(?:\.\d+)?\s*(?:mol\s*%|mol%)(?=\b|[^A-Za-z0-9_])",
         "reported-dose",
         sanitized,
         flags=re.I,
@@ -1448,17 +1473,155 @@ def build_package_evidence_brief(package: Path, analysis_text: str) -> dict[str,
     }
 
 
-def extract_synthesis_evidence_table_rows(markdown_text: str) -> list[dict[str, str]]:
+def extract_synthesis_evidence_table_rows(markdown_text: str) -> list[dict[str, Any]]:
     """Extract sanitized rows from an optional ``SYNTHESIS_PLAN.md`` Evidence Table."""
     if not markdown_text:
         return []
     rows = extract_markdown_table_under_heading(markdown_text, "evidence table")
-    sanitized_rows: list[dict[str, str]] = []
+    sanitized_rows: list[dict[str, Any]] = []
     for row in rows[:20]:
-        sanitized_rows.append(
-            {key: sanitize_design_level_text(value) for key, value in row.items() if value}
-        )
+        parsed = canonicalize_synthesis_evidence_row(row)
+        if parsed:
+            sanitized_rows.append(parsed)
     return sanitized_rows
+
+
+def synthesis_evidence_rows_complete(value: Any) -> bool:
+    """Return true when parsed synthesis rows contain the required field set."""
+    rows = normalized_evidence_rows(value)
+    if not rows:
+        return False
+    return all(
+        all(not is_blank(row.get(field)) for field in SYNTHESIS_EVIDENCE_TABLE_FIELDS)
+        for row in rows
+    )
+
+
+def canonicalize_synthesis_evidence_row(row: dict[str, str]) -> dict[str, Any]:
+    """Normalize one SYNTHESIS_PLAN Evidence Table row into the planner schema."""
+    candidate_claim = first_present(
+        row,
+        (
+            "candidate_synthesis_claim",
+            "candidate_claim",
+            "synthesis_claim",
+            "claim",
+        ),
+    )
+    source_text = first_present(
+        row,
+        (
+            "source_package_and_source_labels",
+            "source_packages_and_source_labels",
+            "source_labels",
+            "sources",
+        ),
+    )
+    if is_blank(candidate_claim) and is_blank(source_text):
+        return {}
+
+    source_packages, source_labels = extract_source_packages_and_labels(source_text)
+    parsed = {
+        "candidate_synthesis_claim": sanitize_design_level_text(candidate_claim),
+        "source_labels": source_labels,
+        "source_packages": source_packages,
+        "source_package_and_source_labels": sanitize_source_label_text(source_text),
+        "evidence_class": sanitize_design_level_text(row.get("evidence_class", "")),
+        "direction": sanitize_design_level_text(row.get("direction", "")),
+        "confidence_tier": sanitize_design_level_text(row.get("confidence_tier", "")),
+        "over_counting_risk": sanitize_design_level_text(row.get("over_counting_risk", "")),
+    }
+    parsed["parse_status"] = (
+        "complete"
+        if all(not is_blank(parsed.get(field)) for field in SYNTHESIS_EVIDENCE_TABLE_FIELDS)
+        else "partial"
+    )
+    return parsed
+
+
+def extract_source_packages_and_labels(value: Any) -> tuple[list[str], list[str]]:
+    """Extract package IDs and source labels from a source-label evidence cell."""
+    text = stringify(value)
+    if not text.strip():
+        return [], []
+
+    packages: list[str] = []
+    labels: list[str] = []
+    code_tokens = re.findall(r"`([^`]+)`", text)
+    if not code_tokens:
+        code_tokens = re.findall(r"\b[\w.-]+::[\w.-]+\b|\b[\w.-]+-gaia\b", text)
+
+    current_package = ""
+    for token in code_tokens:
+        cleaned = sanitize_source_label(token)
+        if not cleaned:
+            continue
+        if "::" in cleaned:
+            package, label = cleaned.split("::", 1)
+            if package:
+                packages.append(package)
+            if label:
+                labels.append(label)
+            continue
+        if looks_like_source_package(cleaned):
+            current_package = cleaned
+            packages.append(cleaned)
+            continue
+        labels.append(cleaned)
+        if current_package and "::" not in cleaned:
+            labels.append(f"{current_package}::{cleaned}")
+
+    return list(dict.fromkeys(packages)), list(dict.fromkeys(labels))
+
+
+def sanitize_source_label(value: Any) -> str:
+    """Return a compact provenance label without Markdown punctuation."""
+    cleaned = stringify(value).strip().strip("`\"' <>.,;:")
+    if "::" in cleaned:
+        package, label = cleaned.split("::", 1)
+        return f"{package}::{sanitize_source_label(label)}" if label else package
+    if looks_like_source_package(cleaned):
+        return cleaned
+
+    label = cleaned
+    label = re.sub(
+        r"(?i)(?:(?<=_)|^)(?:one|two|three|four|five|six|seven|eight|nine|ten)_percent(?=_|$)",
+        "reported_percentage",
+        label,
+    )
+    label = re.sub(
+        r"(?i)(?:(?<=_)|^)\d+(?:_\d+)?(?:m|mm|mol|pct|percent)(?=_|$)",
+        "reported_dose",
+        label,
+    )
+    label = re.sub(r"(?i)(?:(?<=_)|^)recipe\d+(?:_\d+)*(?=_|$)", "recipe_grid", label)
+    label = re.sub(r"(?i)(?:(?<=_)|^)\d+(?:_\d+)+(?=_|$)", "reported_range", label)
+    label = re.sub(r"(?i)(?:(?<=_)|^)\d+(?=_|$)", "reported_value", label)
+    return re.sub(r"_+", "_", label).strip("_")
+
+
+def sanitize_source_label_text(value: Any) -> str:
+    """Sanitize source-label prose while preserving package provenance."""
+    text = stringify(value)
+    if not text.strip():
+        return ""
+
+    def replace_code_token(match: re.Match[str]) -> str:
+        return f"`{sanitize_source_label(match.group(1))}`"
+
+    text = re.sub(r"`([^`]+)`", replace_code_token, text)
+    text = re.sub(
+        r"\b[\w.-]+::[\w.-]+\b|\b[\w.-]+-gaia\b",
+        lambda match: sanitize_source_label(match.group(0)),
+        text,
+    )
+    return sanitize_design_level_text(text)
+
+
+def looks_like_source_package(value: str) -> bool:
+    """Return true when a source-label token looks like a package identifier."""
+    lowered = value.lower()
+    return lowered.endswith("-gaia") or lowered.endswith("_gaia")
 
 
 def extract_markdown_table_under_heading(
@@ -1538,8 +1701,14 @@ def sanitize_design_level_text(value: Any) -> str:
     """Remove exact dose/process details while preserving semantic design meaning."""
     text = sanitize_extracted_gap_text(stringify(value))
     text = re.sub(
+        r"\b\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*%",
+        "reported-percentage range",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
         r"\b\d+(?:\.\d+)?\s*(?:mg\s*m[lL]\s*-?1|mg\s*/\s*m[lL]|"
-        r"m[mM]|mol\s*%|wt\s*%|M)\b",
+        r"m[mM]|mol\s*%|wt\s*%|vol\s*%|M)(?=\b|[^A-Za-z0-9_])",
         "reported-dose",
         text,
         flags=re.I,
@@ -1551,6 +1720,7 @@ def sanitize_design_level_text(value: Any) -> str:
         text,
         flags=re.I,
     )
+    text = re.sub(r"\b\d+(?:\.\d+)?\s*%", "reported-percentage", text, flags=re.I)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -2295,6 +2465,11 @@ def is_blank(value: Any) -> bool:
 def stringify(value: Any) -> str:
     """Return a safe string representation."""
     return "" if value is None else str(value)
+
+
+def contains_any(text: str, markers: tuple[str, ...]) -> bool:
+    """Return true when ``text`` contains any marker."""
+    return any(marker in text for marker in markers)
 
 
 def empty_database_precedents(reason: str) -> dict[str, Any]:
@@ -5347,9 +5522,44 @@ def build_factor_decomposition(
         "source_context": source_context,
         "factor_groups": factor_groups,
         "mechanism_axes": classifier.mechanism_axes,
+        "synthesis_evidence_table": evidence_brief.get("synthesis_evidence_table", []),
+        "semantic_variables": infer_semantic_variables_from_evidence(evidence_brief),
         "evidence_brief_motifs": evidence_brief.get("mechanism_motifs", []),
         "recipe_sanitization": "exact dose, solvent, annealing, and fabrication values are omitted",
     }
+
+
+def infer_semantic_variables_from_evidence(evidence_brief: dict[str, Any]) -> list[str]:
+    """Infer design variables from package-local evidence text and labels."""
+    text = evidence_brief_text(evidence_brief)
+    variables: list[str] = []
+    for markers, variable in (
+        (
+            ("residual pbi2", "pb-rich", "residual pb", "lead-halide crystallite", "pbi2"),
+            "pb_rich_residue_phase_location",
+        ),
+        (
+            ("chloride source", "macl", "chloride distribution", "tof-sims", "cl/"),
+            "chloride_source_distribution",
+        ),
+        (("pbcl2", "replaces pbi2", "substitution"), "pbcl2_isolead_substitution"),
+        (("excess pbcl2", "pbcl2_over", "pbcl2_precursor_ratio"), "pbcl2_excess_coupling"),
+        (
+            ("high", "overdose", "over-addition", "underperforms", "negative boundary"),
+            "high_boundary_condition",
+        ),
+        (("pbbr2", "bromide"), "pbbr2_bromide_comparator"),
+        (("scn", "pseudohalide"), "pseudohalide_comparator"),
+        (("molecular additive", "quinoline", "4-hbsa", "absc"), "molecular_boundary_case"),
+    ):
+        if any(marker in text for marker in markers):
+            variables.append(variable)
+    return list(dict.fromkeys(variables))
+
+
+def evidence_brief_text(evidence_brief: dict[str, Any]) -> str:
+    """Return lower-case package evidence text without relying on package names."""
+    return " ".join(text.lower() for _, text in iter_strings_from_json(evidence_brief))
 
 
 def build_same_sample_measurement_bundle(
@@ -5362,6 +5572,10 @@ def build_same_sample_measurement_bundle(
         "phase_composition": [
             "phase/residual-species readout class",
             "spatial or depth-resolved composition-profile class",
+        ],
+        "residual_phase_quantification": [
+            "quantified residual or secondary phase-fraction class when present",
+            "wrong-location residual-phase mapping class",
         ],
         "recombination_trap": [
             "trap/nonradiative-recombination proxy class",
@@ -5379,9 +5593,14 @@ def build_same_sample_measurement_bundle(
             "operational or environmental stability readout class",
             "phase/degradation-pathway follow-up when stability is an affected conclusion",
         ],
+        "stability_readout_history": [
+            "MPP, aging, or environmental stability/readout-history class",
+            "bias-history or scan-history context where the mechanism may be history-dependent",
+        ],
         "bundle_rule": (
-            "Interpret device metrics only after phase/composition, recombination/trap, "
-            "transport/contact, and stability readouts are linked to the same comparison set."
+            "Interpret device metrics only after phase/composition, residual-phase "
+            "quantification, recombination/trap, device metrics, and stability/readout "
+            "history are linked to the same comparison set."
         ),
         "primary_axis": classifier.primary_mechanism_axis,
     }
@@ -5392,6 +5611,13 @@ def build_minimal_discriminating_matrix(
     measurement_bundle: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Build a minimal semantic matrix without exact recipes."""
+    semantic_rows = build_evidence_driven_semantic_matrix_rows(
+        factor_decomposition,
+        measurement_bundle,
+    )
+    if semantic_rows:
+        return semantic_rows
+
     factor_groups = factor_decomposition.get("factor_groups", [])
     if not isinstance(factor_groups, list):
         factor_groups = []
@@ -5422,6 +5648,389 @@ def build_minimal_discriminating_matrix(
             }
         )
     return rows
+
+
+def build_evidence_driven_semantic_matrix_rows(
+    factor_decomposition: dict[str, Any],
+    measurement_bundle: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build concrete semantic matrix rows from package evidence table content."""
+    evidence_rows = normalized_evidence_rows(factor_decomposition.get("synthesis_evidence_table"))
+    variables = as_list(factor_decomposition.get("semantic_variables"), default="")
+    if not evidence_rows and not variables:
+        return []
+
+    evidence_text = " ".join(evidence_row_search_text(row) for row in evidence_rows)
+    row_specs: list[dict[str, Any]] = [
+        {
+            "label": "baseline",
+            "markers": (),
+            "variable_role": (
+                "anchor the same-sample comparison set before assigning any mechanism branch"
+            ),
+            "h_alt": {
+                "supports_H": "baseline stays stable while the isolated mechanism row shifts",
+                "supports_Alt": "baseline drift or history explains the apparent branch change",
+                "mixed_or_unresolved": "baseline variability is too large for mechanism assignment",
+            },
+        }
+    ]
+    if contains_any(evidence_text, ("residual pbi2", "pb-rich", "residual pb", "pbi2")):
+        row_specs.append(
+            {
+                "label": "Pb-rich only",
+                "markers": ("residual pbi2", "pb-rich", "residual pb", "pbi2"),
+                "variable_role": (
+                    "isolate the residual Pb-rich phase or residue-location branch from chloride "
+                    "source effects"
+                ),
+                "h_alt": {
+                    "supports_H": "residual-phase quantification moves with recombination or device loss",
+                    "supports_Alt": "Pb-rich phase is present but another branch explains the outcome",
+                    "mixed_or_unresolved": "Pb-rich residue and morphology or contact changes co-vary",
+                },
+            }
+        )
+    if contains_any(
+        evidence_text, ("chloride source", "macl", "chloride distribution", "chloride")
+    ):
+        row_specs.append(
+            {
+                "label": "chloride-source only",
+                "markers": ("chloride source", "macl", "chloride distribution", "chloride"),
+                "variable_role": (
+                    "separate chloride source/distribution effects from Pb-rich residue effects"
+                ),
+                "h_alt": {
+                    "supports_H": "chloride distribution changes without Pb-rich residue coupling",
+                    "supports_Alt": "performance follows Pb-rich or morphology branches instead",
+                    "mixed_or_unresolved": "chloride distribution and Pb-rich residue cannot be separated",
+                },
+            }
+        )
+    if contains_any(evidence_text, ("pbcl2",)) and contains_any(
+        evidence_text,
+        ("replaces pbi2", "replaces_pbi2", "substitution", "not interchangeable", "pbi2"),
+    ):
+        row_specs.append(
+            {
+                "label": "PbCl2 isolead substitution",
+                "markers": ("pbcl2", "replaces pbi2", "replaces_pbi2", "substitution", "pbi2"),
+                "variable_role": (
+                    "hold the Pb-source role semantic while changing chloride-bearing versus iodide-rich "
+                    "lead-halide branch assignment"
+                ),
+                "h_alt": {
+                    "supports_H": "PbCl2-specific chloride/distribution readouts separate from PbI2 residue",
+                    "supports_Alt": "lead-rich stoichiometry or morphology explains both branches",
+                    "mixed_or_unresolved": "isolead substitution still changes multiple coupled branches",
+                },
+            }
+        )
+    if contains_any(evidence_text, ("pbcl2",)) and contains_any(
+        evidence_text,
+        ("excess", "window", "overaddition", "ratio_series", "boundary", "underperforms"),
+    ):
+        row_specs.append(
+            {
+                "label": "PbCl2 excess coupling",
+                "markers": (
+                    "pbcl2",
+                    "excess",
+                    "window",
+                    "overaddition",
+                    "ratio_series",
+                    "boundary",
+                    "underperforms",
+                ),
+                "variable_role": (
+                    "test whether the PbCl2 benefit is a chloride/distribution branch or a "
+                    "coupled excess-PbX2 process window"
+                ),
+                "h_alt": {
+                    "supports_H": "PbCl2 branch separates from residue and morphology after normalization",
+                    "supports_Alt": "benefit follows coupled excess process-window covariates",
+                    "mixed_or_unresolved": "PbCl2, residue, and morphology remain inseparable",
+                },
+            }
+        )
+    if contains_any(evidence_text, ("pbcl2", "chloride")) and contains_any(
+        evidence_text,
+        ("pb-rich", "residual pbi2", "residual pb", "lead-halide", "pbi2"),
+    ):
+        row_specs.append(
+            {
+                "label": "chloride + Pb-rich combined",
+                "markers": ("pbcl2", "chloride", "pb-rich", "residual pbi2", "lead-halide"),
+                "variable_role": (
+                    "test the coupled branch where chloride distribution and Pb-rich residue are both active"
+                ),
+                "h_alt": {
+                    "supports_H": "combined row outperforms isolated rows with bounded morphology",
+                    "supports_Alt": "one isolated row explains the outcome without the combined branch",
+                    "mixed_or_unresolved": "combined row improves but isolated branch assignment is unclear",
+                },
+            }
+        )
+    if contains_any(
+        evidence_text,
+        (
+            "high",
+            "overdose",
+            "over-addition",
+            "overaddition",
+            "underperforms",
+            "negative boundary",
+            "over-excess",
+            "impurity boundary",
+        ),
+    ):
+        row_specs.append(
+            {
+                "label": "high-boundary condition",
+                "markers": (
+                    "high",
+                    "overdose",
+                    "over-addition",
+                    "overaddition",
+                    "underperforms",
+                    "negative boundary",
+                    "over-excess",
+                    "impurity boundary",
+                ),
+                "variable_role": (
+                    "confirm the negative boundary without turning exact reported recipes into instructions"
+                ),
+                "h_alt": {
+                    "supports_H": "boundary readouts show wrong-location phase or loss penalties",
+                    "supports_Alt": "no negative boundary appears under same-sample readout history",
+                    "mixed_or_unresolved": "boundary effect appears only with unbounded covariates",
+                },
+            }
+        )
+
+    if contains_any(evidence_text, ("pbbr2", "bromide")):
+        row_specs.append(
+            {
+                "label": "PbBr2 comparator",
+                "markers": ("pbbr2", "bromide"),
+                "variable_role": "separate bromide or mixed-halide comparator behavior from PbCl2/PbI2 rows",
+                "h_alt": {
+                    "supports_H": "bromide comparator has a distinct readout pattern",
+                    "supports_Alt": "bromide behavior collapses into the shared Pb-rich or morphology branch",
+                    "mixed_or_unresolved": "bromide and Pb-rich branches remain coupled",
+                },
+            }
+        )
+    if contains_any(evidence_text, ("scn", "pseudohalide")):
+        row_specs.append(
+            {
+                "label": "pseudohalide comparator",
+                "markers": ("scn", "pseudohalide"),
+                "variable_role": (
+                    "keep pseudohalide comparator chemistry separate from direct PbX2 salt-window evidence"
+                ),
+                "h_alt": {
+                    "supports_H": "pseudohalide comparator follows its own coordination branch",
+                    "supports_Alt": "apparent comparator effect is just a Pb-rich or morphology boundary",
+                    "mixed_or_unresolved": "coordination and phase-boundary branches remain mixed",
+                },
+            }
+        )
+    if len(row_specs) == 1:
+        row_specs.extend(build_generic_semantic_row_specs(factor_decomposition))
+
+    rows: list[dict[str, Any]] = []
+    for index, spec in enumerate(dedupe_row_specs(row_specs), start=1):
+        label = stringify(spec.get("label"))
+        evidence_subset = select_evidence_rows(evidence_rows, spec.get("markers", ()))
+        rows.append(
+            build_semantic_matrix_row(
+                index,
+                label,
+                spec,
+                evidence_subset or evidence_rows[:3],
+                measurement_bundle,
+            )
+        )
+    return rows
+
+
+def build_generic_semantic_row_specs(
+    factor_decomposition: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return non-PbX2 semantic rows when package evidence lacks Pb-specific motifs."""
+    factor_groups = factor_decomposition.get("factor_groups", [])
+    specs: list[dict[str, Any]] = []
+    if not isinstance(factor_groups, list):
+        return specs
+    for group in factor_groups[:3]:
+        if not isinstance(group, dict):
+            continue
+        name = sanitize_design_level_text(group.get("name", "semantic comparator"))
+        role = sanitize_design_level_text(group.get("role", "separate H from Alt"))
+        specs.append(
+            {
+                "label": name.replace("_", " "),
+                "markers": tuple(as_list(group.get("semantic_levels"), default="")),
+                "variable_role": role,
+                "h_alt": {
+                    "supports_H": f"{name} supports the H branch under bounded covariates",
+                    "supports_Alt": f"{name} supports the competing branch or covariate",
+                    "mixed_or_unresolved": f"{name} remains co-varying with another branch",
+                },
+            }
+        )
+    return specs
+
+
+def dedupe_row_specs(row_specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate semantic row specs by label while preserving order."""
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for spec in row_specs:
+        label = stringify(spec.get("label")).lower()
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        deduped.append(spec)
+    return deduped
+
+
+def normalized_evidence_rows(value: Any) -> list[dict[str, Any]]:
+    """Return a list of evidence-table row mappings."""
+    if not isinstance(value, list):
+        return []
+    return [row for row in value if isinstance(row, dict)]
+
+
+def evidence_row_search_text(row: dict[str, Any]) -> str:
+    """Return searchable evidence-row text."""
+    return " ".join(text.lower() for _, text in iter_strings_from_json(row))
+
+
+def select_evidence_rows(evidence_rows: list[dict[str, Any]], markers: Any) -> list[dict[str, Any]]:
+    """Select evidence rows matching any marker, or representative rows for baseline."""
+    raw_markers = (
+        list(markers) if isinstance(markers, list | tuple | set) else as_list(markers, default="")
+    )
+    marker_list = [stringify(marker).lower() for marker in raw_markers]
+    marker_list = [marker for marker in marker_list if marker]
+    if not marker_list:
+        return evidence_rows[:5]
+    selected = [
+        row
+        for row in evidence_rows
+        if any(marker in evidence_row_search_text(row) for marker in marker_list)
+    ]
+    return selected[:5]
+
+
+def build_semantic_matrix_row(
+    index: int,
+    label: str,
+    spec: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+    measurement_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Build one concrete matrix row with evidence, readout, and closure logic."""
+    row_slug = slugify_mapping_key(label)
+    source_labels = collect_evidence_source_labels(evidence_rows)
+    evidence_basis = summarize_evidence_basis(evidence_rows, label)
+    raw_h_alt = spec.get("h_alt")
+    h_alt: dict[str, Any] = raw_h_alt if isinstance(raw_h_alt, dict) else {}
+    readouts = semantic_row_readouts(label, measurement_bundle)
+    closure_rule = (
+        f"Close `{row_slug}` only when same-sample readouts support the row's H branch "
+        "while morphology, residual-phase location, device metrics, and readout history are bounded."
+    )
+    non_closure_rule = (
+        f"Do not close `{row_slug}` when the row only reproduces a broad factor axis, "
+        "when exact-recipe conditions are needed for interpretation, or when H and Alt remain coupled."
+    )
+    return {
+        "matrix_id": f"matrix_{index:02d}_{row_slug}",
+        "row_label": label,
+        "factor_group": "package_evidence_semantic_row",
+        "semantic_levels": [label, "same-sample comparator set", "H-vs-Alt readout bundle"],
+        "evidence_basis": evidence_basis,
+        "source_labels": source_labels,
+        "variable_role": sanitize_design_level_text(
+            spec.get("variable_role", "separate H from Alt")
+        ),
+        "held_constant_design_assumptions": [
+            "same absorber-family or corpus-defined absorber class",
+            "same device-stack family or explicit aggregate route",
+            "same measurement-history/readout-history class",
+            "same morphology-normalization rule before mechanism closure",
+        ],
+        "held_constant": [
+            "absorber family or corpus absorber class",
+            "device-stack family or aggregate route",
+            "measurement/readout history",
+            "morphology-normalization rule",
+        ],
+        "discriminating_readouts": readouts,
+        "same_sample_readout_bundle": list(SEMANTIC_MATRIX_BUNDLE_KEYS),
+        "h_alt_interpretation": {
+            "supports_H": sanitize_design_level_text(h_alt.get("supports_H", "row supports H")),
+            "supports_Alt": sanitize_design_level_text(
+                h_alt.get("supports_Alt", "row supports Alt")
+            ),
+            "mixed_or_unresolved": sanitize_design_level_text(
+                h_alt.get("mixed_or_unresolved", "row remains mixed")
+            ),
+        },
+        "closure_rule": closure_rule,
+        "non_closure_rule": non_closure_rule,
+        "discriminating_role": sanitize_design_level_text(
+            spec.get("variable_role", "separate H from Alt")
+        ),
+        "closure_dependency": measurement_bundle.get("bundle_rule"),
+        "non_recipe_note": "semantic levels only; no exact concentration, solvent, annealing, or procedure",
+    }
+
+
+def collect_evidence_source_labels(evidence_rows: list[dict[str, Any]]) -> list[str]:
+    """Collect source labels from evidence rows without emitting raw table prose."""
+    labels: list[str] = []
+    for row in evidence_rows:
+        row_labels = row.get("source_labels")
+        if isinstance(row_labels, list):
+            labels.extend(sanitize_source_label(label) for label in row_labels if label)
+    return list(dict.fromkeys(label for label in labels if label))[:12]
+
+
+def summarize_evidence_basis(evidence_rows: list[dict[str, Any]], label: str) -> str:
+    """Summarize the package-local evidence basis for one matrix row."""
+    if not evidence_rows:
+        return f"{label}: derived from package-local gap text and mechanism motifs."
+    snippets = [
+        sanitize_design_level_text(row.get("candidate_synthesis_claim", ""))
+        for row in evidence_rows[:2]
+        if not is_blank(row.get("candidate_synthesis_claim"))
+    ]
+    if not snippets:
+        return f"{label}: derived from parsed Evidence Table source labels."
+    return f"{label}: " + " / ".join(snippets)
+
+
+def semantic_row_readouts(label: str, measurement_bundle: dict[str, Any]) -> list[str]:
+    """Choose discriminating readout classes for one matrix row."""
+    lowered = label.lower()
+    keys = ["phase_composition", "recombination_trap", "device_metrics"]
+    if any(marker in lowered for marker in ("pb-rich", "residual", "boundary", "pbcl2")):
+        keys.append("residual_phase_quantification")
+    if "chloride" in lowered or "pbcl2" in lowered:
+        keys.append("phase_composition")
+    if "boundary" in lowered or "high" in lowered:
+        keys.append("stability_readout_history")
+    readouts: list[str] = []
+    for key in dict.fromkeys(keys):
+        value = measurement_bundle.get(key)
+        if isinstance(value, list):
+            readouts.extend(sanitize_design_level_text(item) for item in value[:2])
+    return list(dict.fromkeys(readouts))[:6]
 
 
 def build_route_designs(
@@ -5545,16 +6154,50 @@ def build_gaia_evidence_node_mapping(
         "gap_claim_belief": gap_claim_belief,
         "source_dsl_nodes": evidence_brief.get("source_dsl_nodes", []),
         "evidence_table_rows_used": len(evidence_brief.get("synthesis_evidence_table", [])),
-        "update_targets": [
+        "outcome_update_states": [
             "support_H",
             "support_Alt",
             "mixed_or_unresolved",
         ],
+        "update_targets": build_readable_gaia_update_labels(evidence_brief),
+        "readable_update_labels": build_readable_gaia_update_labels(evidence_brief),
         "update_rule": (
             "Update Gaia nodes only according to the outcome matrix; SQLite background "
             "and cross-package LKM analogies cannot close a mechanism node alone."
         ),
     }
+
+
+def build_readable_gaia_update_labels(evidence_brief: dict[str, Any]) -> list[str]:
+    """Build readable Gaia update labels from package evidence motifs."""
+    text = evidence_brief_text(evidence_brief)
+    labels: list[str] = []
+    if contains_any(text, ("chloride", "macl", "pbcl2")):
+        labels.append("chloride_distribution_isolated")
+    if contains_any(text, ("residual pbi2", "pb-rich", "residual pb", "lead-halide")):
+        labels.append("pb_rich_residue_effect_isolated")
+        labels.append("wrong_location_residual_phase_penalty")
+    labels.append("morphology_normalization_survives")
+    if contains_any(
+        text,
+        (
+            "high",
+            "overdose",
+            "over-addition",
+            "overaddition",
+            "underperforms",
+            "negative boundary",
+            "boundary",
+        ),
+    ):
+        labels.append("high_boundary_negative_case_confirmed")
+    if not labels:
+        labels = [
+            "primary_mechanism_branch_isolated",
+            "dominant_alternative_branch_bounded",
+            "morphology_normalization_survives",
+        ]
+    return list(dict.fromkeys(labels))
 
 
 def build_matrix_closure_rules(domain: dict[str, Any]) -> list[str]:
@@ -5718,8 +6361,19 @@ def render_plan(cards: list[dict[str, Any]]) -> str:
                 f"- Mechanism limitation: {card['mechanism_attribution_limitations']}",
             ]
         )
+        matrix_table = render_matrix_table(card.get("minimal_discriminating_matrix", []))
+        if matrix_table:
+            lines.extend(["", "#### Mechanism-Decomposition Matrix", "", *matrix_table])
     lines.extend(
         [
+            "",
+            "## Acceptance Output",
+            "",
+            "For aggregate-corpus packages, this artifact is the acceptance output of the "
+            "experiment-design flow: regenerate only `EXPERIMENT_PLAN.md`, "
+            "`experiments.yaml`, `retrieval_evidence.yaml`, and necessary `lkm/*.json` "
+            "diagnostics. Article-package formalizations, PDFs, and parsed article artifacts "
+            "remain out of scope.",
             "",
             "## Safety Boundary",
             "",
@@ -5735,13 +6389,64 @@ def format_matrix_rows(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     rows: list[str] = []
-    for row in value[:4]:
+    for row in value[:7]:
         if not isinstance(row, dict):
+            continue
+        if not is_blank(row.get("row_label")):
+            rows.append(
+                f"{row.get('row_label')}: {row.get('variable_role', row.get('discriminating_role'))}"
+            )
             continue
         rows.append(
             f"{row.get('factor_group')}: {', '.join(stringify(item) for item in as_list(row.get('semantic_levels'), default=''))}"
         )
     return rows
+
+
+def render_matrix_table(value: Any) -> list[str]:
+    """Render concrete semantic matrix rows as Markdown."""
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = [
+        "| Row | Evidence basis | Source labels | Variable role | Held constant | Readouts | Closure | Non-closure |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    rendered = 0
+    for row in value:
+        if not isinstance(row, dict) or is_blank(row.get("row_label")):
+            continue
+        rows.append(
+            "| "
+            + " | ".join(
+                escape_markdown_table_cell(item)
+                for item in (
+                    row.get("row_label"),
+                    row.get("evidence_basis"),
+                    ", ".join(
+                        stringify(label) for label in as_list(row.get("source_labels"), default="")
+                    ),
+                    row.get("variable_role"),
+                    ", ".join(
+                        stringify(item)
+                        for item in as_list(row.get("held_constant_design_assumptions"), default="")
+                    ),
+                    ", ".join(
+                        stringify(item)
+                        for item in as_list(row.get("discriminating_readouts"), default="")
+                    ),
+                    row.get("closure_rule"),
+                    row.get("non_closure_rule"),
+                )
+            )
+            + " |"
+        )
+        rendered += 1
+    return rows if rendered else []
+
+
+def escape_markdown_table_cell(value: Any) -> str:
+    """Escape a Markdown table cell."""
+    return sanitize_design_level_text(value).replace("|", "\\|")
 
 
 def format_route_designs(value: Any) -> list[str]:
@@ -5998,6 +6703,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "lab_reference_stack": context.get("lab_reference_stack", DEFAULT_LAB_REFERENCE_STACK),
         "package_evidence_brief_inputs": package_evidence_brief["inputs_read"],
+        "synthesis_evidence_table_rows": len(
+            package_evidence_brief.get("synthesis_evidence_table", [])
+        ),
+        "synthesis_evidence_table_required_fields_present": synthesis_evidence_rows_complete(
+            package_evidence_brief.get("synthesis_evidence_table", [])
+        ),
     }
     retrievals = [retrieve_sqlite(gap, context, args.sqlite_db) for gap in gaps]
     lkm_summaries = [

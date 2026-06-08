@@ -46,6 +46,12 @@ uv run python scripts/validate_experiment_cards.py --allow-readme-fallback exper
 
 Do not use README fallback in strict real-package mode.
 
+For `pvsk-gaia` aggregate acceptance runs, regenerate only
+`EXPERIMENT_PLAN.md`, `experiments.yaml`, `retrieval_evidence.yaml`, and
+necessary `lkm/*.json` diagnostics inside `pvsk-gaia`. Article package
+outputs, source-paper formalizations, PDFs, and parsed article artifacts are
+out of scope.
+
 ## YAML Schema
 
 Every card in `experiments.yaml` must include these keys:
@@ -238,23 +244,40 @@ payloads; raw or longer summaries can live in `retrieval_evidence.yaml` and
   SQLite performance deltas alone.
 
 `minimal_discriminating_matrix`
-: Semantic matrix of factor groups and readout bundles. It must use labels
-  such as baseline, mechanism-family, alternative-family, morphology-normalized
-  comparator, or boundary class. It must not emit exact solvent,
-  concentration, annealing, or stepwise fabrication details.
+: Evidence-derived semantic matrix of concrete mechanism-decomposition rows.
+  Aggregate packages should prioritize `SYNTHESIS_PLAN.md` Evidence Table rows
+  over broad factor axes. Each row must include `row_label`, `evidence_basis`,
+  `source_labels`, `variable_role`, `held_constant_design_assumptions`,
+  `discriminating_readouts`, `h_alt_interpretation`, `closure_rule`, and
+  `non_closure_rule`. It must use semantic labels such as baseline,
+  mechanism-family, alternative-family, morphology-normalized comparator, or
+  boundary class. It must not emit exact solvent, concentration, annealing, or
+  stepwise fabrication details.
+
+`package_evidence_brief.synthesis_evidence_table`
+: Parsed rows from `SYNTHESIS_PLAN.md` when present. The canonical fields are
+  `candidate_synthesis_claim`, `source_labels`, `evidence_class`,
+  `direction`, `confidence_tier`, and `over_counting_risk`. Aggregate
+  mechanism matrices should cite these rows as their evidence basis instead
+  of relying only on generic factor groups.
 
 `route_designs`
 : Design-level route logic, including a standard source-context route, a
   morphology-normalized route, and p-i-n translation route when relevant.
 
 `same_sample_measurement_bundle`
-: Same-sample readout bundle covering phase/composition, recombination/trap,
-  transport/contact, device metrics, and stability when supported by package
-  evidence.
+: Same-sample readout bundle covering phase/composition, residual-phase
+  quantification, recombination/trap, device metrics, and
+  stability/readout-history classes. Transport/contact readouts may also be
+  included when the mechanism requires them.
 
 `gaia_evidence_node_mapping`
 : Mapping from matrix outcomes to target claims, affected conclusions,
-  belief-update targets, source DSL nodes, and synthesis evidence rows.
+  readable belief-update labels, source DSL nodes, and synthesis evidence
+  rows. Use labels such as `chloride_distribution_isolated` or
+  `morphology_normalization_survives`, not opaque `E1`-style IDs. Outcome
+  states such as `support_H` can be retained separately as
+  `outcome_update_states`.
 
 `top_reasoning_chains`
 : LKM chain summaries ranked by reasoning relevance. Each item should state

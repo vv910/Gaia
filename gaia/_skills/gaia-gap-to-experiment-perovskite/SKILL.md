@@ -17,12 +17,13 @@ description: |
 
 Turn Gaia Evidence Gaps into design-level mechanism-decomposition plans for
 perovskite solar-cell experiments. Gaia identifies weak nodes and affected
-conclusions; optional `SYNTHESIS_PLAN.md` and package artifacts supply the
-evidence brief; LKM supplies mechanism claims and reasoning chains; the local
-SQLite database supplies precedent/background only. The skill synthesizes
-those inputs into ranked plans with semantic factor groups, execution
-sequencing, minimal discriminating matrices, route logic, same-sample readout
-bundles, confidence penalties, and Gaia evidence-node update targets.
+conclusions; `SYNTHESIS_PLAN.md` Evidence Table rows, when present, are the
+priority structured evidence brief for aggregate packages; package artifacts
+fill any remaining context. LKM supplies mechanism claims and reasoning chains;
+the local SQLite database supplies precedent/background only. The skill
+synthesizes those inputs into ranked plans with evidence-derived semantic
+matrix rows, execution sequencing, route logic, same-sample readout bundles,
+confidence penalties, and Gaia evidence-node update targets.
 
 This is a reusable skill-level policy. Do not write package-specific hotfixes,
 special cases, or hard-coded rules for one generated Gaia package. Package
@@ -349,6 +350,10 @@ true`.
 
 - finished `README.md`
 - `ANALYSIS.md` from `gaia-formalize-fine`
+- optional `SYNTHESIS_PLAN.md`; for aggregate packages this is priority
+  evidence when it contains an Evidence Table with these parsed fields:
+  candidate synthesis claim, source labels, evidence class, direction,
+  confidence tier, and over-counting risk
 - `.gaia/beliefs.json`
 - `.github-output/docs/public/data/graph.json`, when available
 - `src/<package>/*.py`
@@ -459,6 +464,14 @@ For `aggregate_corpus`, do not require one locked stack. Use a corpus-level
 distribution or dominant families instead. LKM chains and SQLite precedents
 must distinguish package-local, corpus-level, cross-package, and ambiguous
 scope. Do not present aggregate trends as single-paper mechanism proof.
+When `SYNTHESIS_PLAN.md` contains an Evidence Table, parse and preserve the
+six evidence fields before drafting cards. Build the minimal matrix from
+package-local evidence text and source labels, not from package-name branches
+or broad factor axes alone. For PbX2/chloride aggregate evidence, the matrix
+must at minimum include semantic rows for baseline, Pb-rich only,
+chloride-source only, PbCl2 isolead substitution, PbCl2 excess coupling,
+chloride + Pb-rich combined, and high-boundary condition when those motifs are
+supported by the table.
 
 If any required field cannot be recovered, do not emit a generic experiment
 card. Emit a `context_missing_preflight` section instead. The preflight must
@@ -571,6 +584,12 @@ preflight:
   lab_preferred_device_architecture:
 ```
 
+Aggregate `pvsk-gaia` regeneration is an acceptance artifact for this skill:
+regenerate only `EXPERIMENT_PLAN.md`, `experiments.yaml`,
+`retrieval_evidence.yaml`, and necessary `lkm/*.json` diagnostics in
+`pvsk-gaia`. Do not re-formalize article packages, copy PDFs, or move parsed
+article artifacts into the aggregate package.
+
 ## Workflow
 
 1. Inspect package state and run preflight.
@@ -595,6 +614,10 @@ preflight:
    generation. Extract package-local Gaia mechanism evidence first, including
    mechanism chains, missing causal links, conflicting mechanisms, and
    measurement logic.
+   If `SYNTHESIS_PLAN.md` is present, parse its Evidence Table before
+   classifier finalization and carry the candidate claim, source labels,
+   evidence class, direction, confidence tier, and over-counting risk into
+   `package_evidence_brief`.
 
 3. Load the relevant references for this skill:
    - Database retrieval: [references/database-retrieval.md](references/database-retrieval.md)
@@ -650,6 +673,12 @@ preflight:
    axes and decision rules rather than hard-coded metric-specific modules. Add
    analog-control logic for causal attribution or multifunctional-passivator
    gaps.
+   For aggregate packages, `minimal_discriminating_matrix` must contain
+   concrete semantic rows with row label, evidence basis, source labels,
+   variable role, held-constant design assumptions, discriminating readouts,
+   H/Alt interpretation, closure rule, and non-closure rule. Broad axes such
+   as "intervention family" or "mechanism axis" can remain in the factor
+   decomposition, but they are not sufficient as the matrix.
 
 8. If open-world design mode proposes an `emergent_gap_family`, keep
    `review_required: true`. New families become registry archetypes only after

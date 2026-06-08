@@ -13,6 +13,11 @@ import yaml  # type: ignore[import-untyped]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR_PATH = REPO_ROOT / "scripts" / "generate_experiment_plan.py"
 VALIDATOR_PATH = REPO_ROOT / "scripts" / "validate_experiment_cards.py"
+EVIDENCE_TABLE_HEADER = (
+    "| Candidate synthesis claim | Source package and source labels | Evidence class | "
+    "Direction | Confidence tier | Over-counting risk |"
+)
+EVIDENCE_TABLE_SEPARATOR = "| --- | --- | --- | --- | --- | --- |"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -250,10 +255,12 @@ def test_generator_writes_valid_design_level_artifacts(tmp_path: Path, monkeypat
     assert card["morphology_normalization_strategy"]
     assert set(card["same_sample_measurement_bundle"]) >= {
         "phase_composition",
+        "residual_phase_quantification",
         "recombination_trap",
         "transport_contact",
         "device_metrics",
         "stability",
+        "stability_readout_history",
     }
     assert card["passivation_transport_tradeoff_logic"]
     assert card["boundary_condition_tests"]
@@ -1008,10 +1015,14 @@ def test_synthesis_plan_evidence_table_populates_package_brief(tmp_path: Path, m
                 "",
                 "## Evidence Table",
                 "",
-                "| Candidate synthesis claim | Source package and source labels | Evidence class |",
-                "| --- | --- | --- |",
-                "| 0.15 M additive improves a window but boundary is unclear. | "
-                "pkg::claim | direct |",
+                EVIDENCE_TABLE_HEADER,
+                EVIDENCE_TABLE_SEPARATOR,
+                "| 0.15 M additive and 2 mol% co-additive improve a window "
+                "but boundary is unclear. | "
+                "`pkg-gaia`: `window_claim`, `dose_015m_claim`, "
+                "`best_device_three_percent_metrics`, `recipe2_6_7_best_recipe_grid`, "
+                "`boundary_claim` | direct | "
+                "positive with unclear boundary | strong | shared device workflow |",
             ]
         ),
         encoding="utf-8",
@@ -1029,9 +1040,140 @@ def test_synthesis_plan_evidence_table_populates_package_brief(tmp_path: Path, m
     rows = card["package_evidence_brief"]["synthesis_evidence_table"]
     assert rows
     assert rows[0]["candidate_synthesis_claim"].startswith("reported-dose additive")
+    assert rows[0]["source_packages"] == ["pkg-gaia"]
+    assert rows[0]["source_labels"] == [
+        "window_claim",
+        "pkg-gaia::window_claim",
+        "dose_reported_dose_claim",
+        "pkg-gaia::dose_reported_dose_claim",
+        "best_device_reported_percentage_metrics",
+        "pkg-gaia::best_device_reported_percentage_metrics",
+        "recipe_grid_best_recipe_grid",
+        "pkg-gaia::recipe_grid_best_recipe_grid",
+        "boundary_claim",
+        "pkg-gaia::boundary_claim",
+    ]
+    assert rows[0]["direction"] == "positive with unclear boundary"
+    assert rows[0]["confidence_tier"] == "strong"
+    assert rows[0]["over_counting_risk"] == "shared device workflow"
+    assert rows[0]["parse_status"] == "complete"
     assert "0.15 M" not in str(rows)
+    assert "2 mol%" not in str(rows)
+    assert "015m" not in str(rows)
+    assert "three_percent" not in str(rows)
+    assert "recipe2_6_7" not in str(rows)
     retrieval = _load_yaml(output / "retrieval_evidence.yaml")
     assert str(package / "SYNTHESIS_PLAN.md") in retrieval["preflight"]["inputs_read"]
+    assert retrieval["preflight"]["synthesis_evidence_table_required_fields_present"] is True
+
+
+def test_pbx2_synthesis_table_generates_required_semantic_matrix_rows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """PbX2/chloride evidence should produce concrete mechanism-decomposition rows."""
+    package = tmp_path / "pvsk-gaia"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    package.mkdir()
+    (package / "ANALYSIS.md").write_text(
+        "# Analysis\n\nEvidence Gap: PbCl2 and residual PbI2 mechanisms need isolation.",
+        encoding="utf-8",
+    )
+    (package / "experiment_context.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "source_package": "synthetic-pbx2-gaia",
+                "package_mode": "aggregate_corpus",
+                "corpus_level_distribution": "PbCl2, chloride, and residual PbI2 corpus",
+                "perovskite_composition": "lead-halide perovskite corpus",
+                "intervention_location": "bulk, grain-boundary, and interface corpus",
+                "modulator_material_or_family": (
+                    "PbCl2, chloride-source, and residual PbI2 families"
+                ),
+                "lab_preferred_device_architecture": "inverted p-i-n",
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (package / "SYNTHESIS_PLAN.md").write_text(
+        "\n".join(
+            [
+                "# Synthesis",
+                "",
+                "## Evidence Table",
+                "",
+                EVIDENCE_TABLE_HEADER,
+                EVIDENCE_TABLE_SEPARATOR,
+                "| PbCl2 replaces PbI2 in one comparison but excess PbCl2 has a high "
+                "boundary. | `pbcl2-gaia`: `pbcl2_replaces_pbi2`, "
+                "`pbcl2_overaddition_boundary` | direct window | mixed | strong | "
+                "shared window workflow |",
+                "| MACl and PbCl2 chloride-source behavior depends on chloride distribution "
+                "and residual PbI2 coupling. | `chloride-gaia`: "
+                "`chloride_distribution`, `residual_pbi2_coupling` | multimodal "
+                "measurement | positive | strong | same additive family |",
+                "| Residual PbI2 at the wrong location penalizes recombination and stability. | "
+                "`residue-gaia`: `residual_pbi2_wrong_location`, `stability_penalty` | "
+                "interface mapping | negative/mixed | moderate | same interface map |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    labels = [row["row_label"] for row in card["minimal_discriminating_matrix"]]
+    assert labels[:7] == [
+        "baseline",
+        "Pb-rich only",
+        "chloride-source only",
+        "PbCl2 isolead substitution",
+        "PbCl2 excess coupling",
+        "chloride + Pb-rich combined",
+        "high-boundary condition",
+    ]
+    for row in card["minimal_discriminating_matrix"][:7]:
+        assert row["evidence_basis"]
+        assert row["source_labels"]
+        assert row["variable_role"]
+        assert row["held_constant_design_assumptions"]
+        assert row["discriminating_readouts"]
+        assert set(row["h_alt_interpretation"]) == {
+            "supports_H",
+            "supports_Alt",
+            "mixed_or_unresolved",
+        }
+        assert row["closure_rule"]
+        assert row["non_closure_rule"]
+
+    assert set(card["same_sample_measurement_bundle"]) >= {
+        "phase_composition",
+        "residual_phase_quantification",
+        "recombination_trap",
+        "device_metrics",
+        "stability_readout_history",
+    }
+    update_labels = card["gaia_evidence_node_mapping"]["readable_update_labels"]
+    assert set(update_labels) >= {
+        "chloride_distribution_isolated",
+        "pb_rich_residue_effect_isolated",
+        "morphology_normalization_survives",
+        "wrong_location_residual_phase_penalty",
+        "high_boundary_negative_case_confirmed",
+    }
+    rendered = (output / "EXPERIMENT_PLAN.md").read_text(encoding="utf-8")
+    assert "| Row | Evidence basis | Source labels | Variable role |" in rendered
+    assert "PbCl2 isolead substitution" in rendered
+    assert "0.15 M" not in rendered
+    assert "3%" not in rendered
 
 
 def test_implementation_candidate_context_requirements_are_strict(
@@ -1096,6 +1238,56 @@ def test_non_pbx2_package_generates_semantic_matrix(tmp_path: Path, monkeypatch)
     assert "morphology_normalization_axis" in matrix_text
     assert "PbCl2" not in matrix_text
     assert "PbI2" not in matrix_text
+
+
+def test_unrelated_synthesis_table_does_not_emit_pb_specific_rows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Evidence-derived matrix rows should not use Pb labels for unrelated mechanisms."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package_with_gap_table(
+        package,
+        [
+            (
+                "Alkali surface-dipole passivation is not separated from transport "
+                "and contact-selectivity alternatives.",
+                "surface_dipole_claim",
+            )
+        ],
+    )
+    (package / "SYNTHESIS_PLAN.md").write_text(
+        "\n".join(
+            [
+                "# Synthesis",
+                "",
+                "## Evidence Table",
+                "",
+                EVIDENCE_TABLE_HEADER,
+                EVIDENCE_TABLE_SEPARATOR,
+                "| Alkali surface-dipole passivation may change contact selectivity. | "
+                "`alkali-gaia`: `surface_dipole_claim`, `transport_alt` | "
+                "proxy/device mapping | mixed | moderate | same device workflow |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    matrix_text = str(card["minimal_discriminating_matrix"])
+    assert "PbCl2" not in matrix_text
+    assert "PbI2" not in matrix_text
+    assert "Pb-rich only" not in matrix_text
+    assert card["minimal_discriminating_matrix"][0]["row_label"] == "baseline"
 
 
 def test_sqlite_v2_tiers_and_similarity_breakdown(tmp_path: Path, monkeypatch) -> None:

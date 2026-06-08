@@ -301,9 +301,62 @@ OPERATIONAL_RECIPE_MARKERS = (
     "rpm",
 )
 OPERATIONAL_RECIPE_PATTERNS = (
-    re.compile(r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mm|mM|mol\s*/\s*l|wt%|vol%)\b", re.I),
+    re.compile(
+        r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mm|mM|mol\s*/\s*l|"
+        r"mol\s*%|mol%|wt\s*%|wt%|vol\s*%|vol%)(?=\b|[^A-Za-z0-9_])",
+        re.I,
+    ),
+    re.compile(
+        r"\b\d+(?:\.\d+)?\s*%\b(?=\s*(?:excess|best|optimum|optimal|window|boundary|dose))",
+        re.I,
+    ),
     re.compile(r"\b\d+(?:\.\d+)?\s*(?:ul|uL|ml|mL)\b"),
     re.compile(r"\b(?:anneal|heating|heat)\b.{0,40}\b\d{2,3}\s*(?:degc|c|°c)\b", re.I),
+    re.compile(
+        r"(?i)(?:(?<=_)|^)(?:one|two|three|four|five|six|seven|eight|nine|ten)_percent(?=_|$)"
+    ),
+    re.compile(r"(?i)(?:(?<=_)|^)\d+(?:_\d+)?(?:m|mm|mol|pct|percent)(?=_|$)"),
+    re.compile(r"(?i)(?:(?<=_)|^)recipe\d+(?:_\d+)*(?=_|$)"),
+)
+SYNTHESIS_EVIDENCE_TABLE_FIELDS = (
+    "candidate_synthesis_claim",
+    "source_labels",
+    "evidence_class",
+    "direction",
+    "confidence_tier",
+    "over_counting_risk",
+)
+SEMANTIC_MATRIX_ROW_FIELDS = (
+    "row_label",
+    "evidence_basis",
+    "source_labels",
+    "variable_role",
+    "held_constant_design_assumptions",
+    "discriminating_readouts",
+    "h_alt_interpretation",
+    "closure_rule",
+    "non_closure_rule",
+)
+BROAD_FACTOR_GROUPS = {
+    "intervention_family_axis",
+    "absorber_or_phase_axis",
+    "mechanism_axis",
+    "morphology_normalization_axis",
+    "architecture_translation_axis",
+}
+REQUIRED_BUNDLE_CLASSES = (
+    "phase_composition",
+    "residual_phase_quantification",
+    "recombination_trap",
+    "device_metrics",
+    "stability_readout_history",
+)
+PBX2_REQUIRED_UPDATE_LABELS = (
+    "chloride_distribution_isolated",
+    "pb_rich_residue_effect_isolated",
+    "morphology_normalization_survives",
+    "wrong_location_residual_phase_penalty",
+    "high_boundary_negative_case_confirmed",
 )
 
 
@@ -551,6 +604,19 @@ def validate_card(
         card.get("gap_resolution_strategy"),
         result,
         path_join(card_path, "gap_resolution_strategy"),
+    )
+    validate_synthesis_evidence_table(card, result, card_path)
+    validate_semantic_matrix(card, result, card_path)
+    validate_same_sample_bundle(
+        card.get("same_sample_measurement_bundle"),
+        result,
+        path_join(card_path, "same_sample_measurement_bundle"),
+    )
+    validate_gaia_update_labels(
+        card.get("gaia_evidence_node_mapping"),
+        card,
+        result,
+        path_join(card_path, "gaia_evidence_node_mapping"),
     )
     validate_causal_isolation_controls(card, result, card_path)
     warn_readout_mappings(
@@ -1279,6 +1345,157 @@ def validate_gap_resolution_strategy(value: Any, result: ValidationResult, path:
     axes = value.get("decomposition_axes")
     if isinstance(axes, list) and len(axes) < 2:
         result.errors.append(f"{path}.decomposition_axes: should include multiple alternatives")
+
+
+def validate_synthesis_evidence_table(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Validate parsed SYNTHESIS_PLAN Evidence Table rows when present."""
+    brief = card.get("package_evidence_brief")
+    if not isinstance(brief, dict):
+        return
+    inputs = brief.get("inputs_read")
+    inputs_text = " ".join(stringify(item) for item in as_iterable(inputs)).lower()
+    rows = brief.get("synthesis_evidence_table")
+    if "synthesis_plan.md" not in inputs_text and is_missing(rows):
+        return
+    if not isinstance(rows, list) or not rows:
+        result.errors.append(
+            f"{path}.package_evidence_brief.synthesis_evidence_table: "
+            "SYNTHESIS_PLAN.md was read but no Evidence Table rows were parsed"
+        )
+        return
+
+    for index, row in enumerate(rows):
+        row_path = path_join(
+            path_join(path, "package_evidence_brief.synthesis_evidence_table"),
+            index,
+        )
+        if not isinstance(row, dict):
+            result.errors.append(f"{row_path}: Evidence Table row must be a mapping")
+            continue
+        for field_name in SYNTHESIS_EVIDENCE_TABLE_FIELDS:
+            if is_missing(row.get(field_name)):
+                result.errors.append(f"{row_path}.{field_name}: parsed field is missing")
+
+
+def validate_semantic_matrix(  # noqa: C901
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Validate concrete semantic matrix rows for aggregate planning."""
+    matrix = card.get("minimal_discriminating_matrix")
+    matrix_path = path_join(path, "minimal_discriminating_matrix")
+    if not isinstance(matrix, list) or not matrix:
+        result.errors.append(f"{matrix_path}: required non-empty matrix is missing")
+        return
+
+    semantic_rows = [
+        row for row in matrix if isinstance(row, dict) and not is_missing(row.get("row_label"))
+    ]
+    package_mode = stringify(card.get("package_mode"))
+    if package_mode == "aggregate_corpus":
+        if not semantic_rows:
+            result.errors.append(
+                f"{matrix_path}: aggregate plans require concrete semantic rows, "
+                "not only broad factor axes"
+            )
+        factor_groups = {
+            stringify(row.get("factor_group"))
+            for row in matrix
+            if isinstance(row, dict) and not is_missing(row.get("factor_group"))
+        }
+        if not semantic_rows and factor_groups and factor_groups <= BROAD_FACTOR_GROUPS:
+            result.errors.append(
+                f"{matrix_path}: aggregate plan emits only broad factor axes without "
+                "package-evidence semantic rows"
+            )
+
+    for index, row in enumerate(semantic_rows):
+        row_path = path_join(matrix_path, index)
+        for field_name in SEMANTIC_MATRIX_ROW_FIELDS:
+            if is_missing(row.get(field_name)):
+                result.errors.append(f"{row_path}.{field_name}: semantic matrix field is missing")
+        interpretation = row.get("h_alt_interpretation")
+        if isinstance(interpretation, dict):
+            for branch in ("supports_H", "supports_Alt", "mixed_or_unresolved"):
+                if is_missing(interpretation.get(branch)):
+                    result.errors.append(f"{row_path}.h_alt_interpretation.{branch}: missing")
+
+    if evidence_text_has_pbx2(card):
+        labels = {stringify(row.get("row_label")) for row in semantic_rows}
+        required = {
+            "baseline",
+            "Pb-rich only",
+            "chloride-source only",
+            "PbCl2 isolead substitution",
+            "PbCl2 excess coupling",
+            "chloride + Pb-rich combined",
+            "high-boundary condition",
+        }
+        missing = sorted(required - labels)
+        if missing:
+            result.errors.append(
+                f"{matrix_path}: PbX2/chloride evidence requires semantic rows {', '.join(missing)}"
+            )
+
+
+def validate_same_sample_bundle(value: Any, result: ValidationResult, path: str) -> None:
+    """Require the mechanism-decomposition same-sample readout bundle classes."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: same-sample bundle must be a mapping")
+        return
+    for key in REQUIRED_BUNDLE_CLASSES:
+        if is_missing(value.get(key)):
+            result.errors.append(f"{path}.{key}: required same-sample bundle class is missing")
+
+
+def validate_gaia_update_labels(
+    value: Any, card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Require readable Gaia update labels instead of opaque E-style IDs."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: Gaia update mapping must be a mapping")
+        return
+    labels = value.get("readable_update_labels")
+    if is_missing(labels):
+        labels = value.get("update_targets")
+    label_list = [stringify(item) for item in as_iterable(labels) if not is_missing(item)]
+    if not label_list:
+        result.errors.append(f"{path}.readable_update_labels: no readable update labels found")
+        return
+    for label in label_list:
+        if re.fullmatch(r"E\d+", label.strip(), flags=re.I):
+            result.errors.append(f"{path}.readable_update_labels: opaque update label `{label}`")
+        if label in {"support_H", "support_Alt", "mixed_or_unresolved"}:
+            result.errors.append(
+                f"{path}.readable_update_labels: `{label}` is an outcome state, "
+                "not a readable Gaia update label"
+            )
+
+    if evidence_text_has_pbx2(card):
+        missing = [label for label in PBX2_REQUIRED_UPDATE_LABELS if label not in label_list]
+        if missing:
+            result.errors.append(
+                f"{path}.readable_update_labels: PbX2/chloride evidence requires "
+                f"{', '.join(missing)}"
+            )
+
+
+def evidence_text_has_pbx2(card: dict[str, Any]) -> bool:
+    """Return true when card-local evidence contains PbX2/chloride synthesis motifs."""
+    text = " ".join(
+        text.lower() for _, text in iter_strings(card.get("package_evidence_brief"), "")
+    )
+    return contains_any(text, ("pbcl2", "pbi2", "pb-rich", "residual pb", "chloride-source"))
+
+
+def as_iterable(value: Any) -> list[Any]:
+    """Return a list from common scalar/list values."""
+    if is_missing(value):
+        return []
+    if isinstance(value, list | tuple | set):
+        return list(value)
+    return [value]
 
 
 def validate_causal_isolation_controls(
