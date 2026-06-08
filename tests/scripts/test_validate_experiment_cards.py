@@ -29,14 +29,145 @@ def _valid_card() -> dict[str, object]:
     return {
         "gap_id": "experimental_gap_01_interface_mechanism",
         "package_mode": "single_paper",
+        "planning_level": "implementation_candidate",
+        "execution_phase": "phase_2_causal_isolation_matrix",
+        "depends_on": ["locked package stack, absorber, and intervention-family context"],
+        "enables": [
+            "same-sample H-vs-Alt readout bundle",
+            "targeted Gaia belief update for the implementation candidate",
+        ],
+        "execution_rationale": (
+            "Sequencing is based on confounder control and readout dependency rather "
+            "than scientific priority."
+        ),
         "source_package": "fa_cs_interface_gaia",
         "target_claims": ["fa_cs_interface::weak_interface_claim"],
         "affected_conclusions": ["fa_cs_interface::main_conclusion"],
-        "current_belief": 0.42,
+        "gap_claim_belief": 0.42,
         "original_evidence_gap_text": (
             "Evidence Gap: passivation attribution is not isolated from "
             "morphology or contact alternatives."
         ),
+        "package_evidence_brief": {
+            "brief_source": "package_artifacts",
+            "inputs_read": ["ANALYSIS.md", "README.md", "src/pkg/__init__.py"],
+            "analysis_gap_count": 1,
+            "analysis_gap_excerpts": [
+                "Evidence Gap: passivation attribution is not isolated from morphology."
+            ],
+            "synthesis_evidence_table": [],
+            "detailed_reasoning_available": True,
+            "source_dsl_nodes": ["claim_interface_mechanism"],
+            "mechanism_motifs": ["functional_analog_causal_isolation"],
+            "evidence_brief_summary": (
+                "Package-local artifacts define gaps and mechanism motifs for design planning."
+            ),
+        },
+        "mechanism_decomposition_question": (
+            "Which branch explains the interface claim: passivation/contact response, "
+            "or morphology/contact alternatives?"
+        ),
+        "factor_decomposition": {
+            "source_context": {
+                "absorber_family": "FA-Cs perovskite",
+                "intervention_family": "Lewis-base interfacial modulator",
+                "architecture_family": "n-i-p",
+            },
+            "factor_groups": [
+                {
+                    "name": "intervention_family_axis",
+                    "semantic_levels": [
+                        "matched no-intervention baseline",
+                        "Lewis-base interfacial modulator",
+                    ],
+                    "role": "separate intervention branch from comparator chemistry",
+                }
+            ],
+            "mechanism_axes": ["dopant_additive_chemical_interaction"],
+            "evidence_brief_motifs": ["functional_analog_causal_isolation"],
+            "recipe_sanitization": "exact process values are omitted",
+        },
+        "minimal_discriminating_matrix": [
+            {
+                "matrix_id": "matrix_01_intervention_family_axis",
+                "factor_group": "intervention_family_axis",
+                "semantic_levels": [
+                    "matched no-intervention baseline",
+                    "Lewis-base interfacial modulator",
+                ],
+                "held_constant": ["absorber family", "intervention location"],
+                "same_sample_readout_bundle": [
+                    "phase_composition",
+                    "recombination_trap",
+                    "transport_contact",
+                    "device_metrics",
+                    "stability",
+                ],
+                "discriminating_role": "separate H from Alt",
+                "closure_dependency": "same-sample readout bundle separates H from Alt",
+            }
+        ],
+        "route_designs": [
+            {
+                "route_id": "source_context_standard_route",
+                "route_logic": "Use source-context stack as provenance.",
+                "reference_stack": "FTO/SnO2/FA-Cs perovskite/Spiro/Au",
+                "limits": "source-context results do not prove p-i-n translation",
+            },
+            {
+                "route_id": "morphology_normalized_route",
+                "route_logic": "Bound morphology before mechanism interpretation.",
+                "reference_stack": "ITO / SAM / perovskite / C60 / BCP / Ag",
+                "limits": "requires same-sample mechanism readouts",
+            },
+        ],
+        "morphology_normalization_strategy": {
+            "normalization_goal": "Make morphology an explicit covariate.",
+            "morphology_readout_classes": ["grain/crystallinity/phase readout class"],
+            "normalization_rule": "Block closure if morphology shifts with H.",
+            "allowed_interpretation": "Morphology can support Alt but not mechanism proof alone.",
+        },
+        "same_sample_measurement_bundle": {
+            "phase_composition": ["phase/residual-species readout class"],
+            "recombination_trap": ["trap/nonradiative-recombination proxy class"],
+            "transport_contact": ["contact/barrier/selectivity diagnostic class"],
+            "device_metrics": ["same-population PCE/FF/Voc/Jsc distribution"],
+            "stability": ["operational or environmental stability readout class"],
+            "bundle_rule": "Interpret metrics only after same-sample readout coupling.",
+            "primary_axis": "dopant_additive_chemical_interaction",
+        },
+        "passivation_transport_tradeoff_logic": {
+            "passivation_branch": ["trap/nonradiative-recombination readouts"],
+            "transport_contact_branch": ["carrier extraction/contact diagnostics"],
+            "tradeoff_rule": "Separate passivation and transport/contact before update.",
+            "primary_axis": "dopant_additive_chemical_interaction",
+        },
+        "boundary_condition_tests": [
+            {
+                "boundary_id": "beneficial_window_boundary",
+                "semantic_range": ["baseline", "reported beneficial window class"],
+                "target_branch": "passivation/contact branch",
+                "non_recipe_note": "no exact process values are emitted",
+            }
+        ],
+        "gaia_evidence_node_mapping": {
+            "target_claims": ["fa_cs_interface::weak_interface_claim"],
+            "affected_conclusions": ["fa_cs_interface::main_conclusion"],
+            "gap_claim_belief": 0.42,
+            "source_dsl_nodes": ["claim_interface_mechanism"],
+            "evidence_table_rows_used": 0,
+            "update_targets": ["support_H", "support_Alt", "mixed_or_unresolved"],
+            "update_rule": "Update only according to the outcome matrix.",
+        },
+        "matrix_closure_rules": [
+            "same-sample readout bundle separates H from Alt",
+            "morphology/contact alternatives are bounded",
+        ],
+        "matrix_non_closure_rules": [
+            "readouts are not linked to the same comparison set",
+            "only SQLite broad-context precedent supports the interpretation",
+        ],
+        "lab_reference_stack": "ITO / SAM / perovskite / C60 / BCP / Ag",
         "gap_type": "multifunctional additive causal-isolation gap",
         "gap_classifier_output": {
             "dominant_observable": "functional analog response and bounded covariates",
@@ -109,7 +240,12 @@ def _valid_card() -> dict[str, object]:
             "tier1 query: n-i-p FA/Cs stack, ETL/perovskite interface, modulator family"
         ],
         "database_precedents": {
-            "tier_counts": {"tier1": 2, "tier2": 3, "tier3": 4, "rejected": 5},
+            "tier_counts": {
+                "tier1_strong_precedent": 2,
+                "tier2_related_precedent": 3,
+                "tier3_broad_context": 4,
+                "rejected_or_unusable": 5,
+            },
             "parse_coverage": {
                 "pce": "2/2",
                 "ff": "2/2",
@@ -121,7 +257,16 @@ def _valid_card() -> dict[str, object]:
                 {
                     "doi": "10.0000/example",
                     "perovskite_composition": "FA0.85Cs0.15PbI3",
-                    "similarity_score": 0.91,
+                    "similarity_score": {
+                        "architecture": 0.15,
+                        "absorber": 0.15,
+                        "intervention_location": 0.2,
+                        "modulator_family": 0.15,
+                        "paired_metric_completeness": 0.1,
+                        "mechanism_relevance": 0.16,
+                        "total": 0.91,
+                    },
+                    "precedent_group": "independent_paper",
                     "why_comparable": "Same n-i-p stack and same intervention location.",
                     "why_limited": "Different HTL stack limits direct stability comparison.",
                     "parsed_deltas": {"pce": 1.2, "ff": 0.04, "voc": 0.02},
@@ -135,6 +280,21 @@ def _valid_card() -> dict[str, object]:
         },
         "sqlite_precedent_quality": "usable_background",
         "sqlite_quality_warning": False,
+        "database_confidence": {
+            "overall": "screening_only",
+            "metric_coverage": {
+                "pce": "2/2",
+                "ff": "2/2",
+                "voc": "2/2",
+                "jsc": "1/2",
+                "hysteresis": "1/2",
+            },
+            "interpretation_limit": (
+                "SQLite cannot raise mechanism confidence or close mechanism nodes; "
+                "it remains precedent/background only."
+            ),
+            "penalties": [],
+        },
         "sqlite_role": (
             "SQLite is for precedent discovery, stack/intervention matching, and "
             "paired delta background only; it is not mechanism proof."
@@ -151,6 +311,19 @@ def _valid_card() -> dict[str, object]:
             "LKM reasoning chains support recombination and contact Alt separation "
             "with same-package and cross-package provenance retained."
         ),
+        "top_reasoning_chains": [
+            {
+                "relevance": "direct_source_context",
+                "supports": "dopant_additive_chemical_interaction",
+                "key_premise": "Local interface mechanism reasoning",
+                "key_limitation": "same-package reasoning still requires H-vs-Alt readout closure",
+                "provenance": {
+                    "reasoning_scope": "same_package",
+                    "source_package": "fa_cs_interface_gaia",
+                    "chain_id": "lkm_chain_01",
+                },
+            }
+        ],
         "lkm_design_reasoning": {
             "endpoint": "/reasoning/search",
             "query": "mechanism design query",
@@ -511,14 +684,32 @@ def test_warning_conditions_are_reported() -> None:
         "top_precedent_rows": [
             {
                 "perovskite_composition": "Unknown",
-                "similarity_score": 0.3,
+                "similarity_score": {
+                    "architecture": 0.0,
+                    "absorber": 0.0,
+                    "intervention_location": 0.0,
+                    "modulator_family": 0.1,
+                    "paired_metric_completeness": 0.1,
+                    "mechanism_relevance": 0.1,
+                    "total": 0.3,
+                },
+                "precedent_group": "independent_paper",
                 "why_comparable": "Same modulator family.",
                 "why_limited": "Unknown absorber.",
                 "parsed_deltas": {"pce": 0.4},
             },
             {
                 "perovskite_composition": "Unknown",
-                "similarity_score": 0.31,
+                "similarity_score": {
+                    "architecture": 0.0,
+                    "absorber": 0.0,
+                    "intervention_location": 0.0,
+                    "modulator_family": 0.1,
+                    "paired_metric_completeness": 0.1,
+                    "mechanism_relevance": 0.11,
+                    "total": 0.31,
+                },
+                "precedent_group": "independent_paper",
                 "why_comparable": "Same modulator family.",
                 "why_limited": "Unknown absorber.",
                 "parsed_deltas": {"ff": 0.02},
@@ -576,14 +767,95 @@ def test_low_parse_coverage_requires_database_confidence_note() -> None:
     assert isinstance(parse_coverage, dict)
     parse_coverage["hysteresis"] = "0/2"
 
+    del card["database_confidence"]
     missing_note = validator.validate_payload([card])
-    card["database_confidence"] = (
-        "Hysteresis parse coverage is low; mechanism confidence is limited."
-    )
+    card["database_confidence"] = {
+        "overall": "low",
+        "metric_coverage": parse_coverage,
+        "interpretation_limit": (
+            "SQLite cannot raise mechanism confidence or close mechanism nodes."
+        ),
+        "penalties": ["low_metric_parse_coverage"],
+    }
     with_note = validator.validate_payload([card])
 
     assert any("database_confidence" in warning for warning in missing_note.warnings)
     assert not any("database_confidence" in warning for warning in with_note.warnings)
+
+
+def test_aggregate_card_missing_planning_level_warns() -> None:
+    card = _valid_card()
+    card["package_mode"] = "aggregate_corpus"
+    card["source_device_context"] = {
+        "package_mode": "aggregate_corpus",
+        "corpus_level_distribution": "mixed PSC corpus",
+        "dominant_architecture_families": ["n-i-p", "p-i-n"],
+    }
+    del card["planning_level"]
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("aggregate card lacks planning_level" in warning for warning in result.warnings)
+
+
+def test_legacy_current_belief_warns() -> None:
+    card = _valid_card()
+    card["current_belief"] = card.pop("gap_claim_belief")
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("legacy field" in warning for warning in result.warnings)
+
+
+def test_weak_sqlite_tier_distribution_warns() -> None:
+    card = _valid_card()
+    assert isinstance(card["database_precedents"], dict)
+    card["database_precedents"]["tier_counts"] = {
+        "tier1_strong_precedent": 0,
+        "tier2_related_precedent": 0,
+        "tier3_broad_context": 4,
+        "rejected_or_unusable": 6,
+    }
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("broad context or unusable SQLite rows dominate" in w for w in result.warnings)
+
+
+def test_repeated_perfect_similarity_scores_warn() -> None:
+    card = _valid_card()
+    assert isinstance(card["database_precedents"], dict)
+    rows = card["database_precedents"]["top_precedent_rows"]
+    assert isinstance(rows, list)
+    second = dict(rows[0])
+    rows.append(second)
+    for row in rows:
+        assert isinstance(row, dict)
+        assert isinstance(row["similarity_score"], dict)
+        row["similarity_score"]["total"] = 1.0
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("similarity_score.total == 1.0" in w for w in result.warnings)
+
+
+def test_hysteresis_coverage_penalty_warns() -> None:
+    card = _valid_card()
+    card["gap_family"] = "ion_migration_hysteresis"
+    card["primary_mechanism_axis"] = "ion_migration_hysteresis"
+    assert isinstance(card["database_precedents"], dict)
+    parse_coverage = card["database_precedents"]["parse_coverage"]
+    assert isinstance(parse_coverage, dict)
+    parse_coverage["hysteresis"] = "0/2"
+
+    result = validator.validate_payload([card])
+
+    assert result.errors == []
+    assert any("low hysteresis coverage" in warning for warning in result.warnings)
 
 
 def test_sqlite_only_evidence_cannot_close_mechanism_gap() -> None:
@@ -772,7 +1044,7 @@ def test_smoke_mode_relaxes_real_package_grounding() -> None:
         "source_package",
         "target_claims",
         "affected_conclusions",
-        "current_belief",
+        "gap_claim_belief",
         "original_evidence_gap_text",
         "source_device_context",
         "portability_risks_for_p_i_n",

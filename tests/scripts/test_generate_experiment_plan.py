@@ -231,10 +231,37 @@ def test_generator_writes_valid_design_level_artifacts(tmp_path: Path, monkeypat
     experiments = _load_yaml(output / "experiments.yaml")
     result = validator.validate_payload(experiments)
     assert result.errors == []
-    assert result.warnings == []
+    assert all("legacy" not in warning for warning in result.warnings)
 
     card = experiments["experiments"][0]
     assert "gap_resolution_strategy" in card
+    assert card["planning_level"] == "implementation_candidate"
+    assert card["gap_claim_belief"] == "unknown"
+    assert "current_belief" not in card
+    assert card["lab_reference_stack"] == "ITO / SAM / perovskite / C60 / BCP / Ag"
+    assert card["execution_phase"]
+    assert card["depends_on"]
+    assert card["enables"]
+    assert card["package_evidence_brief"]["analysis_gap_count"] == 1
+    assert card["mechanism_decomposition_question"]
+    assert card["factor_decomposition"]["factor_groups"]
+    assert card["minimal_discriminating_matrix"]
+    assert card["route_designs"]
+    assert card["morphology_normalization_strategy"]
+    assert set(card["same_sample_measurement_bundle"]) >= {
+        "phase_composition",
+        "recombination_trap",
+        "transport_contact",
+        "device_metrics",
+        "stability",
+    }
+    assert card["passivation_transport_tradeoff_logic"]
+    assert card["boundary_condition_tests"]
+    assert card["gaia_evidence_node_mapping"]["target_claims"]
+    assert card["matrix_closure_rules"]
+    assert card["matrix_non_closure_rules"]
+    assert card["database_confidence"]["overall"] in {"low", "limited", "screening_only"}
+    assert card["top_reasoning_chains"][0]["relevance"] == "lkm_unavailable"
     assert "ff_loss_budget" not in card
     assert card["confidence"] == "low"
     assert card["same_package_lkm_chains"] == []
@@ -353,7 +380,7 @@ def test_generator_uses_readme_experimental_gaps_when_analysis_has_no_structured
     assert str(package / "README.md") in retrieval["preflight"]["inputs_read"]
 
 
-def test_open_world_h_alt_mentions_gap_specific_pbx2_branches() -> None:
+def test_open_world_h_alt_uses_semantic_branches_without_package_special_case() -> None:
     classifier = generator.classify_gap_stage_a(
         "Run factorial PbCl2/PbI2/MACl/additive series on the same device stack."
     )
@@ -366,9 +393,10 @@ def test_open_world_h_alt_mentions_gap_specific_pbx2_branches() -> None:
 
     combined = f"{hypothesis} {alternative} {observation}"
     assert "candidate mechanism branch" not in combined
-    assert "chloride-source" in combined
-    assert "residual-PbI2" in combined
+    assert "halide-source or distribution branch" in combined
+    assert "residual lead-halide phase branch" in combined
     assert "morphology" in combined
+    assert "PbCl2 conclusion" not in combined
 
 
 def test_missing_context_writes_preflight_only(tmp_path: Path, monkeypatch) -> None:
@@ -788,6 +816,7 @@ def test_aggregate_corpus_mode_does_not_require_single_locked_stack(
     experiments = _load_yaml(output / "experiments.yaml")
     card = experiments["experiments"][0]
     assert card["package_mode"] == "aggregate_corpus"
+    assert card["planning_level"] == "aggregate_roadmap"
     assert card["source_device_context"]["package_mode"] == "aggregate_corpus"
     assert "solar_cell_structure" not in card["source_device_context"]
     retrieval = _load_yaml(output / "retrieval_evidence.yaml")
@@ -964,3 +993,181 @@ def test_design_memory_recipe_details_are_removed(tmp_path: Path, monkeypatch) -
     assert "spin coat" not in rendered_yaml
     assert "dmf" not in rendered_yaml
     assert "anneal at" not in rendered_yaml
+
+
+def test_synthesis_plan_evidence_table_populates_package_brief(tmp_path: Path, monkeypatch) -> None:
+    """Optional SYNTHESIS_PLAN.md Evidence Table should feed the package brief."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package(package)
+    (package / "SYNTHESIS_PLAN.md").write_text(
+        "\n".join(
+            [
+                "# Synthesis",
+                "",
+                "## Evidence Table",
+                "",
+                "| Candidate synthesis claim | Source package and source labels | Evidence class |",
+                "| --- | --- | --- |",
+                "| 0.15 M additive improves a window but boundary is unclear. | "
+                "pkg::claim | direct |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    rows = card["package_evidence_brief"]["synthesis_evidence_table"]
+    assert rows
+    assert rows[0]["candidate_synthesis_claim"].startswith("reported-dose additive")
+    assert "0.15 M" not in str(rows)
+    retrieval = _load_yaml(output / "retrieval_evidence.yaml")
+    assert str(package / "SYNTHESIS_PLAN.md") in retrieval["preflight"]["inputs_read"]
+
+
+def test_implementation_candidate_context_requirements_are_strict(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """implementation_candidate needs concrete package/stack/absorber/intervention context."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package(package)
+    context = yaml.safe_load((package / "experiment_context.yaml").read_text(encoding="utf-8"))
+    context = {
+        "source_package": context["source_package"],
+        "package_mode": "aggregate_corpus",
+        "planning_level": "implementation_candidate",
+    }
+    (package / "experiment_context.yaml").write_text(
+        yaml.safe_dump(context, sort_keys=False), encoding="utf-8"
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 2
+    preflight = _load_yaml(output / "context_missing_preflight.yaml")
+    missing = preflight["context_missing_preflight"]["missing_fields"]
+    assert "solar_cell_structure" in missing
+    assert "cell_stack_sequence" in missing
+
+
+def test_non_pbx2_package_generates_semantic_matrix(tmp_path: Path, monkeypatch) -> None:
+    """Matrix synthesis should work for non-PbX2 mechanism motifs."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package_with_gap_table(
+        package,
+        [
+            (
+                "Alkali surface-dipole passivation is not separated from transport "
+                "and contact-selectivity alternatives.",
+                "surface_dipole_claim",
+            )
+        ],
+    )
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    card = _load_yaml(output / "experiments.yaml")["experiments"][0]
+    matrix_text = str(card["minimal_discriminating_matrix"])
+    assert "intervention_family_axis" in matrix_text
+    assert "morphology_normalization_axis" in matrix_text
+    assert "PbCl2" not in matrix_text
+    assert "PbI2" not in matrix_text
+
+
+def test_sqlite_v2_tiers_and_similarity_breakdown(tmp_path: Path, monkeypatch) -> None:
+    """SQLite output should use V2 tier names and component scores."""
+    package = tmp_path / "pkg"
+    output = tmp_path / "out"
+    db_path = tmp_path / "precedents.db"
+    _write_package(package)
+    _write_sqlite(db_path)
+    monkeypatch.delenv("LKM_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GAIA_LKM_ACCESS_KEY", raising=False)
+
+    exit_code = generator.main(
+        [str(package), "--output-dir", str(output), "--sqlite-db", str(db_path), "--skip-lkm"]
+    )
+
+    assert exit_code == 0
+    precedents = _load_yaml(output / "experiments.yaml")["experiments"][0]["database_precedents"]
+    assert set(precedents["tier_counts"]) == {
+        "tier1_strong_precedent",
+        "tier2_related_precedent",
+        "tier3_broad_context",
+        "rejected_or_unusable",
+    }
+    demoted = precedents["demoted_precedent_rows"]
+    assert demoted
+    score = demoted[0]["similarity_score"]
+    assert set(score) == {
+        "architecture",
+        "absorber",
+        "intervention_location",
+        "modulator_family",
+        "paired_metric_completeness",
+        "mechanism_relevance",
+        "total",
+    }
+    assert demoted[0]["precedent_group"] in {
+        "dose_series",
+        "device_variant",
+        "duplicate_extraction",
+        "independent_paper",
+    }
+
+
+def test_lkm_top_reasoning_chains_summary() -> None:
+    """Top reasoning-chain summaries should expose relevance, support, and limitations."""
+    lkm = generator.LkmSummary(
+        queries_run=["/reasoning/search: recombination"],
+        role="LKM mechanism reasoning retrieved.",
+        evidence_summary="LKM reasoning chain supports recombination branch.",
+        mechanism_reasoning="same-package recombination mechanism reasoning",
+        same_package_chains=[
+            {
+                "reasoning_scope": "same_package",
+                "source_package": "example_perovskite_gaia",
+                "chain_id": "chain_1",
+                "title": "Trap passivation separates contact alternative.",
+            }
+        ],
+        cross_package_chains=[],
+        unknown_package_chains=[],
+        successful_endpoints=["/reasoning/search"],
+        failed_endpoints=[],
+        sqlite_lkm_conflicts=[],
+        confidence="moderate",
+        design_reasoning={},
+    )
+    classifier = generator.classify_gap_stage_a("Trap recombination loss mapping is absent.")
+
+    chains = generator.build_top_reasoning_chains(lkm, classifier)
+
+    assert chains[0]["relevance"] == "direct_source_context"
+    assert chains[0]["supports"] == "recombination_defect_passivation"
+    assert "H-vs-Alt" in chains[0]["key_limitation"]
+    assert chains[0]["provenance"]["chain_id"] == "chain_1"

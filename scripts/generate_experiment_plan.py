@@ -44,6 +44,8 @@ REQUIRED_CONTEXT_FIELDS = (
     "modulator_material_or_family",
 )
 
+DEFAULT_LAB_REFERENCE_STACK = "ITO / SAM / perovskite / C60 / BCP / Ag"
+
 MECHANISM_AXES = (
     "recombination_defect_passivation",
     "charge_extraction_collection",
@@ -1284,6 +1286,8 @@ def direct_readout_available_for_archetype(archetype: str) -> str:
 
 def check_context(context: dict[str, Any]) -> list[str]:
     """Return missing required context fields."""
+    if stringify(context.get("planning_level")).strip().lower() == "implementation_candidate":
+        return [field for field in REQUIRED_CONTEXT_FIELDS if not context.get(field)]
     if package_mode_from_context(context) == "aggregate_corpus":
         return [field for field in ("source_package",) if not context.get(field)]
     return [field for field in REQUIRED_CONTEXT_FIELDS if not context.get(field)]
@@ -1390,6 +1394,166 @@ def collect_source_ids_from_payload(
             add_normalized_identifier(source_paper_ids, node.get(key))
 
 
+def build_package_evidence_brief(package: Path, analysis_text: str) -> dict[str, Any]:
+    """Summarize package-local evidence artifacts for design-level planning."""
+    input_texts: dict[str, str] = {"ANALYSIS.md": analysis_text}
+    inputs_read = [str(package / "ANALYSIS.md")]
+    for relative in (
+        "README.md",
+        "SYNTHESIS_PLAN.md",
+        "docs/detailed-reasoning.md",
+    ):
+        path = package / relative
+        if not path.exists():
+            continue
+        input_texts[relative] = path.read_text(encoding="utf-8", errors="ignore")
+        inputs_read.append(str(path))
+
+    source_paths = sorted((package / "src").glob("**/*.py"))[:12]
+    source_texts: list[str] = []
+    for path in source_paths:
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        source_texts.append(text[:4000])
+        inputs_read.append(str(path))
+
+    combined_text = "\n".join([*input_texts.values(), *source_texts])
+    analysis_gaps = [
+        sanitize_design_level_text(text)
+        for text in (
+            extract_evidence_gap_table_rows(analysis_text)
+            or extract_freeform_gap_blocks(analysis_text)
+        )
+    ][:12]
+    synthesis_text = input_texts.get("SYNTHESIS_PLAN.md", "")
+    synthesis_rows = extract_synthesis_evidence_table_rows(synthesis_text)
+    mechanism_motifs = infer_mechanism_motifs_from_text(combined_text)
+    source_nodes = extract_source_dsl_nodes(source_texts)
+    return {
+        "brief_source": "package_artifacts",
+        "inputs_read": inputs_read,
+        "analysis_gap_count": len(analysis_gaps),
+        "analysis_gap_excerpts": analysis_gaps,
+        "synthesis_evidence_table": synthesis_rows,
+        "detailed_reasoning_available": "docs/detailed-reasoning.md" in input_texts,
+        "source_dsl_nodes": source_nodes,
+        "mechanism_motifs": mechanism_motifs,
+        "evidence_brief_summary": (
+            "Package-local artifacts define the target Gaia gaps, source labels, "
+            "mechanism motifs, and synthesis evidence context. The brief is used for "
+            "design decomposition, not as an operational protocol."
+        ),
+    }
+
+
+def extract_synthesis_evidence_table_rows(markdown_text: str) -> list[dict[str, str]]:
+    """Extract sanitized rows from an optional ``SYNTHESIS_PLAN.md`` Evidence Table."""
+    if not markdown_text:
+        return []
+    rows = extract_markdown_table_under_heading(markdown_text, "evidence table")
+    sanitized_rows: list[dict[str, str]] = []
+    for row in rows[:20]:
+        sanitized_rows.append(
+            {key: sanitize_design_level_text(value) for key, value in row.items() if value}
+        )
+    return sanitized_rows
+
+
+def extract_markdown_table_under_heading(
+    markdown_text: str, heading_contains: str
+) -> list[dict[str, str]]:
+    """Extract simple Markdown table rows under one heading."""
+    in_section = False
+    heading_level = 0
+    header: list[str] = []
+    rows: list[dict[str, str]] = []
+    for raw_line in markdown_text.splitlines():
+        line = raw_line.strip()
+        heading = parse_markdown_heading(line)
+        if heading is not None:
+            level, title = heading
+            if heading_contains in title:
+                in_section = True
+                heading_level = level
+                header = []
+                continue
+            if in_section and level <= heading_level:
+                break
+        if not in_section or not line.startswith("|"):
+            continue
+        cells = split_markdown_table_row(line)
+        if not cells or all(set(cell) <= {"-", ":"} for cell in cells):
+            continue
+        if not header:
+            header = [slugify_mapping_key(cell) for cell in cells]
+            continue
+        rows.append(dict(zip(header, cells, strict=False)))
+    return rows
+
+
+def slugify_mapping_key(text: str) -> str:
+    """Return a stable snake_case key for Markdown table headers."""
+    key = re.sub(r"[^a-zA-Z0-9]+", "_", strip_markdown_inline(text).lower()).strip("_")
+    return key or "field"
+
+
+def extract_source_dsl_nodes(source_texts: list[str]) -> list[str]:
+    """Extract compact Gaia DSL node-like identifiers from package source files."""
+    node_ids: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(r"\b(?:claim|conclusion|evidence|gap|hypothesis|question)_[a-zA-Z0-9_]+\b")
+    for text in source_texts:
+        for match in pattern.finditer(text):
+            node_id = match.group(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node_ids.append(node_id)
+            if len(node_ids) >= 24:
+                return node_ids
+    return node_ids
+
+
+def infer_mechanism_motifs_from_text(text: str) -> list[str]:
+    """Infer reusable mechanism motifs from package text without package-specific rules."""
+    lowered = text.lower()
+    motifs = matched_archetypes_for_text(lowered, architecture_mismatch=False)
+    for marker, motif in (
+        ("chloride", "halide_source_distribution"),
+        ("residual pbi2", "residual_lead_halide_phase_location"),
+        ("residual pb", "residual_lead_halide_phase_location"),
+        ("bromide", "halide_alloying_or_bromide_comparator"),
+        ("pseudohalide", "pseudohalide_coordination_comparator"),
+        ("depth-resolved", "spatial_composition_profile"),
+        ("same sample", "same_sample_readout_coupling"),
+    ):
+        if marker in lowered:
+            motifs.append(motif)
+    return list(dict.fromkeys(motifs)) or ["unregistered_mechanism_uncertainty"]
+
+
+def sanitize_design_level_text(value: Any) -> str:
+    """Remove exact dose/process details while preserving semantic design meaning."""
+    text = sanitize_extracted_gap_text(stringify(value))
+    text = re.sub(
+        r"\b\d+(?:\.\d+)?\s*(?:mg\s*m[lL]\s*-?1|mg\s*/\s*m[lL]|"
+        r"m[mM]|mol\s*%|wt\s*%|M)\b",
+        "reported-dose",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"\b\d+(?:\.\d+)?\s*%\b(?=\s*(?:best|optimum|optimal|window|boundary|"
+        r"excess|over|under|addition|additive|condition|point|series|dose))",
+        "reported-dose",
+        text,
+        flags=re.I,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def retrieve_sqlite(gap: Gap, context: dict[str, Any], db_path: Path) -> RetrievalSummary:
     """Run bounded SQLite precedent retrieval for a gap."""
     if not db_path.exists():
@@ -1422,12 +1586,7 @@ def retrieve_sqlite(gap: Gap, context: dict[str, Any], db_path: Path) -> Retriev
         conn.close()
 
     precedent_summary = {
-        "tier_counts": {
-            "tier1": min(len(quality_report.top_precedent_rows), 1),
-            "tier2": max(min(len(quality_report.top_precedent_rows) - 1, 3), 0),
-            "tier3": max(len(quality_report.top_precedent_rows) - 4, 0),
-            "rejected": sum(quality_report.rejected_precedent_rows_summary.values()),
-        },
+        "tier_counts": build_sqlite_tier_counts(quality_report),
         "source_role": (
             "SQLite is for precedent discovery, stack/intervention matching, and "
             "paired delta background only; it is not mechanism proof."
@@ -2141,7 +2300,12 @@ def stringify(value: Any) -> str:
 def empty_database_precedents(reason: str) -> dict[str, Any]:
     """Return a validator-shaped empty precedent summary."""
     return {
-        "tier_counts": {"tier1": 0, "tier2": 0, "tier3": 0, "rejected": 0},
+        "tier_counts": {
+            "tier1_strong_precedent": 0,
+            "tier2_related_precedent": 0,
+            "tier3_broad_context": 0,
+            "rejected_or_unusable": 0,
+        },
         "parse_coverage": {
             "pce": "0/0",
             "ff": "0/0",
@@ -2251,7 +2415,7 @@ def sqlite_row_action(
     if any(marker in text for marker in ("kesterite", "czts", "oxide-only", "generic review")):
         return "reject", "cross_domain_or_review"
     axes = precedent_matched_axes(row, columns, context, gap)
-    score = similarity_score_from_axes(axes)
+    score = similarity_score_breakdown(row, columns, context, gap)["total"]
     if score < 0.65 or len(axes) < 2:
         return "reject", "low_similarity"
     if "architecture" in axes and not any(
@@ -2299,6 +2463,24 @@ def sqlite_quality_label(
     return "unusable"
 
 
+def build_sqlite_tier_counts(report: SQLiteQualityReport) -> dict[str, int]:
+    """Return V2 precedent-tier counts with SQLite kept as background evidence."""
+    strong = sum(
+        1
+        for row in report.top_precedent_rows
+        if similarity_total(row.get("similarity_score")) >= 0.85
+    )
+    related = max(len(report.top_precedent_rows) - strong, 0)
+    broad_context = len(report.demoted_precedent_rows)
+    rejected = sum(report.rejected_precedent_rows_summary.values())
+    return {
+        "tier1_strong_precedent": strong,
+        "tier2_related_precedent": related,
+        "tier3_broad_context": broad_context,
+        "rejected_or_unusable": rejected,
+    }
+
+
 def dedupe_precedent_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deduplicate repeated DOI/title rows."""
     deduped: list[dict[str, Any]] = []
@@ -2324,7 +2506,7 @@ def filter_precedent_rows(
         if not is_perovskite_solar_cell_row(row, columns):
             continue
         axes = precedent_matched_axes(row, columns, context, gap)
-        score = similarity_score_from_axes(axes)
+        score = similarity_score_breakdown(row, columns, context, gap)["total"]
         if score < 0.65 or len(axes) < 2:
             continue
         if not any(axis in axes for axis in ("composition", "intervention", "mechanism")):
@@ -2353,7 +2535,7 @@ def precedent_similarity(
 ) -> tuple[float, int]:
     """Score rough comparability across architecture/composition/intervention axes."""
     axes = precedent_matched_axes(row, columns, context, gap)
-    return similarity_score_from_axes(axes), len(axes)
+    return similarity_score_breakdown(row, columns, context, gap)["total"], len(axes)
 
 
 def precedent_matched_axes(
@@ -2377,6 +2559,42 @@ def precedent_matched_axes(
 def similarity_score_from_axes(axes: set[str]) -> float:
     """Convert matched axes into a bounded screening score."""
     return min(0.45 + 0.10 * len(axes), 0.95)
+
+
+def similarity_score_breakdown(
+    row: sqlite3.Row, columns: set[str], context: dict[str, Any], gap: Gap
+) -> dict[str, float]:
+    """Return a decomposed SQLite comparability score."""
+    metric_status = parsed_metric_status(row, columns)
+    breakdown = {
+        "architecture": 0.15 if architecture_matches(row, columns, context) else 0.0,
+        "absorber": 0.15 if composition_matches(row, columns, context) else 0.0,
+        "intervention_location": (
+            0.20 if intervention_location_matches(row, columns, context) else 0.0
+        ),
+        "modulator_family": 0.15 if mechanism_family_matches(row, columns, gap, context) else 0.0,
+        "paired_metric_completeness": (
+            0.15
+            if metric_status == "usable_paired_metric"
+            else 0.05
+            if metric_status == "screening_only"
+            else 0.0
+        ),
+        "mechanism_relevance": 0.20 if metric_family_matches(row, columns, gap) else 0.0,
+    }
+    total = min(0.20 + sum(breakdown.values()), 0.95)
+    return {key: round(value, 2) for key, value in {**breakdown, "total": total}.items()}
+
+
+def similarity_total(value: Any) -> float:
+    """Read a V2 or legacy SQLite similarity score total."""
+    numeric = value.get("total") if isinstance(value, dict) else value
+    if isinstance(numeric, int | float):
+        return float(numeric)
+    try:
+        return float(str(numeric))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def architecture_matches(row: sqlite3.Row, columns: set[str], context: dict[str, Any]) -> bool:
@@ -2559,21 +2777,38 @@ def summarize_row(
     structure = row["solar_cell_structure"] if "solar_cell_structure" in columns else "unknown"
     title = row["title"] if "title" in columns else "untitled precedent"
     doi = row["doi"] if "doi" in columns else "unknown"
-    score, matched_axes = precedent_similarity(row, columns, context, gap)
+    score = similarity_score_breakdown(row, columns, context, gap)
+    matched_axes = len(precedent_matched_axes(row, columns, context, gap))
     return {
         "title": title,
         "doi": doi,
         "solar_cell_structure": structure,
         "perovskite_composition": composition,
-        "similarity_score": round(score, 2),
+        "similarity_score": score,
         "matched_comparability_axes": matched_axes,
+        "precedent_group": classify_precedent_group(row, columns),
         "why_comparable": (
             "Passed PSC screening and matched at least two architecture, absorber, "
             "intervention, mechanism, or metric-family axes."
         ),
         "why_limited": "SQLite rows are precedent background and not mechanism proof.",
-        "parsed_deltas": {"status": parsed_metric_status(row, columns)},
+        "parsed_deltas": {
+            "status": parsed_metric_status(row, columns),
+            "metric_coverage_role": "screening metadata only unless audited paired deltas exist",
+        },
     }
+
+
+def classify_precedent_group(row: sqlite3.Row, columns: set[str]) -> str:
+    """Classify a SQLite row's precedent role without elevating it to proof."""
+    text = row_text(row, columns)
+    if any(marker in text for marker in ("dose", "concentration", "series", "mol%", "excess")):
+        return "dose_series"
+    if any(marker in text for marker in ("variant", "control", "baseline", "device")):
+        return "device_variant"
+    if any(marker in text for marker in ("duplicate", "same doi", "same title")):
+        return "duplicate_extraction"
+    return "independent_paper"
 
 
 def parse_numeric(value: Any) -> float | None:
@@ -3013,61 +3248,46 @@ def synthesize_open_world_h_alt(
 ) -> tuple[str, str, str]:
     """Build gap-specific open-world H/Alt text from mechanism terms."""
     source = stringify(context.get("source_package", "source-package"))
-    lowered = uncertainty.lower()
-    if "pbcl2" in lowered and "pbi2" in lowered:
-        return (
-            f"In {source}, the PbX2 conclusion is controlled by separable chloride-source, "
-            "residual-PbI2/Pb-rich phase-location, and additive/cation-chemistry axes; "
-            "a matched design should show these axes moving distinct phase, composition, "
-            "recombination, interface-loss, and stability readouts.",
-            "The apparent PbX2 window is instead dominated by co-varying morphology, "
-            "stoichiometry, contact/interface loss, absorber-family, or architecture "
-            "differences, so PbCl2, residual PbI2, and chloride-source effects cannot be "
-            "causally separated.",
-            "H is favored only if independent factor changes split chloride distribution "
-            "from residual-PbI2/Pb-rich phase location and those split readouts track the "
-            "affected recombination/interface/stability conclusions; Alt is favored if "
-            "the readouts move together with morphology, contact, or architecture covariates.",
-        )
-    if "depth-resolved" in lowered or "residual pbi2" in lowered:
-        return (
-            f"In {source}, depth/location-resolved Pb/halide and residual-phase readouts "
-            "can distinguish chloride-source effects from residual-PbI2 or mixed "
-            "lead-halide residue effects when paired to recombination, device, and "
-            "stability readouts on the same comparison set.",
-            "The same aggregate behavior can be explained by unresolved phase-location "
-            "co-variation, morphology changes, contact-mediated recombination, or "
-            "measurement-proxy mismatch rather than by a separable chloride-versus-residue "
-            "mechanism.",
-            "H is favored when spatial composition and residual-phase classes separate "
-            "before the recombination/device/stability readouts are interpreted; Alt is "
-            "favored when phase/location signals remain coupled or fail to predict the "
-            "affected device and stability outcomes.",
-        )
-    if "boundary" in lowered or "positive point" in lowered or "high-dose" in lowered:
-        return (
-            f"In {source}, reported positive PbX2/additive windows remain valid only "
-            "inside bounded process and composition regions; matched boundary tests should "
-            "identify where phase residue, morphology, interface loss, or stability "
-            "penalties begin.",
-            "The positive point may be a local or architecture-specific observation with "
-            "no transferable upper boundary, or the apparent boundary may be caused by "
-            "processing, absorber-family, contact, or measurement-selection covariates.",
-            "H is favored when boundary-condition readouts show a coherent transition "
-            "from beneficial window to named negative mechanism; Alt is favored when "
-            "performance changes are disconnected from phase, morphology, interface, or "
-            "stability boundary readouts.",
-        )
+    branches = infer_named_mechanism_branches(uncertainty, classifier)
+    primary_branch = branches[0]
+    competing_branches = branches[1:] or [classifier.alternative_class]
+    competing_text = ", ".join(competing_branches[:4])
     return (
-        f"In {source}, the gap is resolved by the mechanism axis "
-        f"`{classifier.primary_mechanism_axis}` named by the Gaia/LKM/design evidence: "
-        f"{uncertainty}",
-        f"The observation is instead explained by {classifier.alternative_class}, "
-        "architecture translation, or proxy-only measurement logic.",
-        "H is favored when primary readouts change with the proposed mechanism axis under "
-        "bounded controls; Alt is favored when the same observations follow the listed "
-        "competing branch or remain proxy-only.",
+        f"In {source}, the gap is resolved if the {primary_branch} separates from "
+        f"{competing_text} under matched design-level controls and same-sample readouts.",
+        f"The observation is instead explained by {competing_text}, architecture "
+        "translation, or proxy-only measurement logic rather than by a separable "
+        f"{primary_branch}.",
+        f"H is favored when readouts for {primary_branch} split from {competing_text} "
+        "while morphology, contact, and measurement-history covariates are bounded; Alt "
+        "is favored when those branches remain coupled or the alternative branch predicts "
+        "the affected Gaia update better.",
     )
+
+
+def infer_named_mechanism_branches(uncertainty: str, classifier: GapClassifierOutput) -> list[str]:
+    """Infer semantic mechanism branches from text and classifier axes."""
+    lowered = uncertainty.lower()
+    branches: list[str] = []
+    branch_markers = (
+        (("chloride", "halide", "pbcl", "macl"), "halide-source or distribution branch"),
+        (("residual pb", "pbi2", "pb-rich", "lead-halide"), "residual lead-halide phase branch"),
+        (("bromide", "pbbr"), "bromide or mixed-halide comparator branch"),
+        (("scn", "pseudohalide"), "pseudohalide coordination branch"),
+        (("morphology", "crystallinity", "grain", "phase"), "morphology/phase branch"),
+        (("contact", "interface", "barrier", "selectivity"), "contact/interface branch"),
+        (("recombination", "trap", "lifetime", "qfls"), "recombination/trap branch"),
+        (("transport", "extraction", "collection"), "transport/extraction branch"),
+        (("hysteresis", "ion", "bias"), "ion-migration or bias-history branch"),
+        (("stability", "degradation", "moisture", "thermal"), "stability/degradation branch"),
+        (("boundary", "window", "over", "dose", "positive point"), "boundary-condition branch"),
+    )
+    for markers, branch in branch_markers:
+        if any(marker in lowered for marker in markers):
+            branches.append(branch)
+    branches.append(classifier.primary_mechanism_axis.replace("_", " ") + " branch")
+    branches.append(classifier.alternative_class.replace("_", " "))
+    return list(dict.fromkeys(branches))
 
 
 def build_card(
@@ -3075,6 +3295,7 @@ def build_card(
 ) -> dict[str, Any]:
     """Build one experiment-design card."""
     package_mode = package_mode_from_context(context)
+    planning_level = determine_planning_level(context)
     source_context = build_source_device_context(context, package_mode)
     classifier = classify_gap_stage_b(gap, context, retrieval, lkm)
     classification_mode = determine_classification_mode(classifier, context)
@@ -3095,8 +3316,19 @@ def build_card(
     else:
         domain = build_domain_specific_template(gap, context, classifier)
     controls = merge_lists(domain.get("controls", []), translation["p_i_n_specific_controls"])
-    causal_controls = domain.get("causal_isolation_controls") or build_causal_isolation_controls(
-        gap
+    causal_probe = " ".join(
+        [
+            gap.text,
+            gap.gap_type,
+            classifier.alternative_class,
+            stringify(domain.get("scientific_uncertainty")),
+            stringify(domain.get("alternative_Alt")),
+        ]
+    )
+    causal_controls = (
+        domain.get("causal_isolation_controls")
+        or build_causal_isolation_controls(gap)
+        or build_causal_isolation_controls_from_text(causal_probe)
     )
     if causal_controls:
         controls = merge_lists(
@@ -3111,32 +3343,78 @@ def build_card(
             ],
         )
 
-    parse_coverage = retrieval.database_precedents.get("parse_coverage")
-    low_parse_coverage = isinstance(parse_coverage, dict) and parse_coverage_is_low(parse_coverage)
     sqlite_quality = stringify(
         retrieval.database_precedents.get("sqlite_precedent_quality", "unusable")
     )
     sqlite_weak = sqlite_quality in {"weak_screening_only", "unusable", "weak_or_none"}
     priority = score_priority(classifier, context, lkm, sqlite_weak=sqlite_weak)
     confidence = determine_card_confidence(classifier, lkm, sqlite_weak=sqlite_weak)
+    target_claims = as_list(
+        context.get("target_claims", context.get("target_claim")),
+        default=f"{context['source_package']}::{gap.gap_id}",
+    )
+    affected_conclusions = as_list(
+        context.get("affected_conclusions", context.get("affected_conclusion")),
+        default=f"{context['source_package']}::main_conclusion",
+    )
+    gap_claim_belief = context.get("gap_claim_belief", context.get("current_belief", "unknown"))
+    raw_evidence_brief = context.get("package_evidence_brief")
+    if isinstance(raw_evidence_brief, dict):
+        evidence_brief: dict[str, Any] = dict(raw_evidence_brief)
+    else:
+        evidence_brief = {
+            "brief_source": "context_unavailable",
+            "inputs_read": [],
+            "mechanism_motifs": [],
+            "synthesis_evidence_table": [],
+            "source_dsl_nodes": [],
+        }
+    lab_reference_stack = sanitize_design_level_text(
+        context.get("lab_reference_stack", DEFAULT_LAB_REFERENCE_STACK)
+    )
+    factor_decomposition = build_factor_decomposition(gap, context, classifier, evidence_brief)
+    same_sample_bundle = build_same_sample_measurement_bundle(classifier, evidence_brief)
+    execution_fields = build_execution_plan_fields(planning_level, classifier, 1)
+    database_confidence = build_database_confidence(retrieval, gap, sqlite_weak=sqlite_weak)
     card = {
         "gap_id": gap.gap_id,
         "package_mode": package_mode,
+        "planning_level": planning_level,
+        **execution_fields,
         "gap_family": classifier.card_archetype,
         "template_id": domain["template_id"],
         "template_resolution_status": domain["template_resolution_status"],
         "gap_type_specific_title": domain["gap_type_specific_title"],
         "source_package": context["source_package"],
-        "target_claims": as_list(
-            context.get("target_claims", context.get("target_claim")),
-            default=f"{context['source_package']}::{gap.gap_id}",
-        ),
-        "affected_conclusions": as_list(
-            context.get("affected_conclusions", context.get("affected_conclusion")),
-            default=f"{context['source_package']}::main_conclusion",
-        ),
-        "current_belief": context.get("current_belief", "unknown"),
+        "target_claims": target_claims,
+        "affected_conclusions": affected_conclusions,
+        "gap_claim_belief": gap_claim_belief,
         "original_evidence_gap_text": gap.text,
+        "package_evidence_brief": evidence_brief,
+        "mechanism_decomposition_question": build_mechanism_decomposition_question(
+            gap, classifier, context
+        ),
+        "factor_decomposition": factor_decomposition,
+        "minimal_discriminating_matrix": build_minimal_discriminating_matrix(
+            factor_decomposition,
+            same_sample_bundle,
+        ),
+        "route_designs": build_route_designs(context, lab_reference_stack, classifier),
+        "morphology_normalization_strategy": build_morphology_normalization_strategy(classifier),
+        "same_sample_measurement_bundle": same_sample_bundle,
+        "passivation_transport_tradeoff_logic": build_passivation_transport_tradeoff_logic(
+            classifier
+        ),
+        "boundary_condition_tests": build_boundary_condition_tests(gap, classifier),
+        "gaia_evidence_node_mapping": build_gaia_evidence_node_mapping(
+            target_claims,
+            affected_conclusions,
+            gap_claim_belief,
+            evidence_brief,
+        ),
+        "matrix_closure_rules": build_matrix_closure_rules(domain),
+        "matrix_non_closure_rules": build_matrix_non_closure_rules(domain),
+        "lab_reference_stack": lab_reference_stack,
         "gap_type": domain["gap_type"],
         "gap_classifier_output": classifier.as_dict(),
         "mechanism_axes": classifier.mechanism_axes,
@@ -3169,12 +3447,7 @@ def build_card(
         "sqlite_quality_warning": bool(
             retrieval.database_precedents.get("sqlite_quality_warning", sqlite_weak)
         ),
-        "database_confidence": (
-            "SQLite parse coverage is low; precedent rows and paired deltas remain "
-            "background only and cannot increase mechanism-attribution confidence."
-            if low_parse_coverage
-            else "SQLite parse coverage is sufficient for precedent screening only."
-        ),
+        "database_confidence": database_confidence,
         "sqlite_role": (
             "SQLite is for precedent discovery, stack/intervention matching, and "
             "paired delta background only; it is not mechanism proof."
@@ -3190,6 +3463,7 @@ def build_card(
             "chains are analogies; ambiguous chains are audit-only."
         ),
         "lkm_evidence_summary": lkm.evidence_summary,
+        "top_reasoning_chains": build_top_reasoning_chains(lkm, classifier),
         "mechanism_source_breakdown": {
             "package_local_gaia_evidence": (
                 "Package-local Gaia evidence supplies the target gap, affected conclusion, "
@@ -4899,6 +5173,12 @@ def build_gap_resolution_strategy(gap: Gap) -> dict[str, Any]:
 def build_causal_isolation_controls(gap: Gap) -> dict[str, Any]:
     """Return functional analog-control logic when causal isolation is required."""
     text = f"{gap.text} {gap.gap_type}".lower()
+    return build_causal_isolation_controls_from_text(text)
+
+
+def build_causal_isolation_controls_from_text(text: str) -> dict[str, Any]:
+    """Return functional analog-control logic when text requires causal isolation."""
+    lowered = text.lower()
     markers = (
         "sole cause attribution",
         "passivation not isolated",
@@ -4909,7 +5189,7 @@ def build_causal_isolation_controls(gap: Gap) -> dict[str, Any]:
         "causal isolation",
         "causal-isolation",
     )
-    if not any(marker in text for marker in markers):
+    if not any(marker in lowered for marker in markers):
         return {}
     return {
         "analog_control_class": "design-level functional analog comparator class",
@@ -4925,6 +5205,467 @@ def build_causal_isolation_controls(gap: Gap) -> dict[str, Any]:
             "causal gap and only supports follow-up narrowing."
         ),
     }
+
+
+def determine_planning_level(context: dict[str, Any]) -> str:
+    """Return aggregate-roadmap or implementation-candidate planning level."""
+    explicit = stringify(context.get("planning_level")).strip().lower()
+    if explicit in {"aggregate_roadmap", "implementation_candidate"}:
+        return explicit
+    if package_mode_from_context(context) == "aggregate_corpus":
+        return "aggregate_roadmap"
+    return "implementation_candidate"
+
+
+def build_execution_plan_fields(
+    planning_level: str, classifier: GapClassifierOutput, index_hint: int
+) -> dict[str, Any]:
+    """Build execution sequencing fields independent of scientific priority."""
+    phase_by_axis = {
+        "architecture_portability": "phase_1_context_lock_and_translation",
+        "morphology_crystallinity_phase": "phase_1_morphology_normalization",
+        "dopant_additive_chemical_interaction": "phase_2_causal_isolation_matrix",
+        "recombination_defect_passivation": "phase_2_same_sample_mechanism_bundle",
+        "charge_extraction_collection": "phase_2_transport_contact_bundle",
+        "contact_energetics_barrier": "phase_2_transport_contact_bundle",
+        "ion_migration_hysteresis": "phase_3_bias_history_and_boundary_checks",
+        "stability_degradation_pathway": "phase_3_boundary_and_stability_checks",
+    }
+    phase = phase_by_axis.get(
+        classifier.primary_mechanism_axis,
+        f"phase_{min(index_hint, 3)}_mechanism_decomposition",
+    )
+    if planning_level == "aggregate_roadmap":
+        return {
+            "execution_phase": phase,
+            "depends_on": ["corpus evidence brief and candidate-family selection"],
+            "enables": [
+                "implementation-candidate package selection",
+                "Gaia evidence-node update targets for the aggregate package",
+            ],
+            "execution_rationale": (
+                "This aggregate roadmap phase narrows corpus-level mechanism ambiguity "
+                "before committing to a concrete stack or intervention implementation."
+            ),
+        }
+    return {
+        "execution_phase": phase,
+        "depends_on": ["locked package stack, absorber, and intervention-family context"],
+        "enables": [
+            "same-sample H-vs-Alt readout bundle",
+            "targeted Gaia belief update for the implementation candidate",
+        ],
+        "execution_rationale": (
+            "This implementation phase runs after context is locked; sequencing is based "
+            "on confounder control and readout dependency rather than card priority."
+        ),
+    }
+
+
+def build_mechanism_decomposition_question(
+    gap: Gap, classifier: GapClassifierOutput, context: dict[str, Any]
+) -> str:
+    """State the H-vs-Alt mechanism-decomposition question."""
+    source = stringify(context.get("source_package", "source package"))
+    branches = infer_named_mechanism_branches(gap.text, classifier)
+    return (
+        f"For {source}, which branch explains `{sanitize_design_level_text(gap.text)}`: "
+        f"{branches[0]}, or {', '.join(branches[1:4])}? The answer must come from "
+        "same-sample readout coupling and bounded morphology and contact alternatives."
+    )
+
+
+def build_factor_decomposition(
+    gap: Gap,
+    context: dict[str, Any],
+    classifier: GapClassifierOutput,
+    evidence_brief: dict[str, Any],
+) -> dict[str, Any]:
+    """Infer semantic factor groups and mechanism axes for the matrix."""
+    branches = infer_named_mechanism_branches(gap.text, classifier)
+    source_context = {
+        "absorber_family": sanitize_design_level_text(
+            context.get("perovskite_composition")
+            or context.get("dominant_absorber_families")
+            or "corpus-level absorber family"
+        ),
+        "intervention_family": sanitize_design_level_text(
+            context.get("modulator_material_or_family")
+            or context.get("dominant_intervention_families")
+            or "corpus-level intervention family"
+        ),
+        "architecture_family": sanitize_design_level_text(
+            context.get("solar_cell_structure")
+            or context.get("dominant_architecture_families")
+            or "mixed PSC architecture family"
+        ),
+    }
+    factor_groups = [
+        {
+            "name": "intervention_family_axis",
+            "semantic_levels": [
+                "matched no-intervention baseline",
+                source_context["intervention_family"],
+                "mechanism-adjacent comparator family",
+            ],
+            "role": "separate the candidate intervention branch from comparator chemistry",
+        },
+        {
+            "name": "absorber_or_phase_axis",
+            "semantic_levels": [
+                source_context["absorber_family"],
+                "phase/residual-species location class",
+                "composition-distribution class",
+            ],
+            "role": "separate absorber/phase context from mechanism attribution",
+        },
+        {
+            "name": "mechanism_axis",
+            "semantic_levels": branches[:4],
+            "role": "split H and Alt branches into discriminating readout families",
+        },
+        {
+            "name": "morphology_normalization_axis",
+            "semantic_levels": [
+                "morphology-unmatched screen",
+                "morphology-normalized comparator",
+                "morphology-shift positive control class",
+            ],
+            "role": "prevent morphology or crystallinity from closing a mechanism gap by proxy",
+        },
+        {
+            "name": "architecture_translation_axis",
+            "semantic_levels": [
+                source_context["architecture_family"],
+                "lab inverted p-i-n reference stack",
+                "architecture-specific contact alternative",
+            ],
+            "role": "separate source-context proof from p-i-n translation",
+        },
+    ]
+    return {
+        "source_context": source_context,
+        "factor_groups": factor_groups,
+        "mechanism_axes": classifier.mechanism_axes,
+        "evidence_brief_motifs": evidence_brief.get("mechanism_motifs", []),
+        "recipe_sanitization": "exact dose, solvent, annealing, and fabrication values are omitted",
+    }
+
+
+def build_same_sample_measurement_bundle(
+    classifier: GapClassifierOutput, evidence_brief: dict[str, Any]
+) -> dict[str, Any]:
+    """Build same-sample readout bundles across mechanism classes."""
+    motifs = " ".join(stringify(item) for item in evidence_brief.get("mechanism_motifs", []))
+    _ = motifs
+    return {
+        "phase_composition": [
+            "phase/residual-species readout class",
+            "spatial or depth-resolved composition-profile class",
+        ],
+        "recombination_trap": [
+            "trap/nonradiative-recombination proxy class",
+            "PL/TRPL/QFLS or equivalent recombination-localization class",
+        ],
+        "transport_contact": [
+            "carrier extraction or transport timing class",
+            "contact/barrier/selectivity diagnostic class",
+        ],
+        "device_metrics": [
+            "same-population PCE/FF/Voc/Jsc distribution",
+            "scan-direction or hysteresis context when relevant",
+        ],
+        "stability": [
+            "operational or environmental stability readout class",
+            "phase/degradation-pathway follow-up when stability is an affected conclusion",
+        ],
+        "bundle_rule": (
+            "Interpret device metrics only after phase/composition, recombination/trap, "
+            "transport/contact, and stability readouts are linked to the same comparison set."
+        ),
+        "primary_axis": classifier.primary_mechanism_axis,
+    }
+
+
+def build_minimal_discriminating_matrix(
+    factor_decomposition: dict[str, Any],
+    measurement_bundle: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build a minimal semantic matrix without exact recipes."""
+    factor_groups = factor_decomposition.get("factor_groups", [])
+    if not isinstance(factor_groups, list):
+        factor_groups = []
+    rows: list[dict[str, Any]] = []
+    for index, group in enumerate(factor_groups[:4], start=1):
+        if not isinstance(group, dict):
+            continue
+        rows.append(
+            {
+                "matrix_id": f"matrix_{index:02d}_{group.get('name', 'factor')}",
+                "factor_group": group.get("name", "factor_group"),
+                "semantic_levels": group.get("semantic_levels", []),
+                "held_constant": [
+                    "lab reference stack unless this row is the architecture axis",
+                    "absorber family",
+                    "intervention location",
+                    "measurement history",
+                ],
+                "same_sample_readout_bundle": [
+                    "phase_composition",
+                    "recombination_trap",
+                    "transport_contact",
+                    "device_metrics",
+                    "stability",
+                ],
+                "discriminating_role": group.get("role", "separate H from Alt"),
+                "closure_dependency": measurement_bundle.get("bundle_rule"),
+            }
+        )
+    return rows
+
+
+def build_route_designs(
+    context: dict[str, Any],
+    lab_reference_stack: str,
+    classifier: GapClassifierOutput,
+) -> list[dict[str, Any]]:
+    """Return design-level route logic, including morphology normalization."""
+    source_stack = sanitize_design_level_text(
+        context.get("cell_stack_sequence")
+        or context.get("corpus_level_distribution")
+        or "aggregate corpus stack distribution"
+    )
+    return [
+        {
+            "route_id": "source_context_standard_route",
+            "route_logic": (
+                "Use the source-context stack or corpus family as provenance, then vary "
+                "only semantic factor groups needed by the minimal matrix."
+            ),
+            "reference_stack": source_stack,
+            "limits": "source-context results do not prove p-i-n translation by themselves",
+        },
+        {
+            "route_id": "morphology_normalized_route",
+            "route_logic": (
+                "Pair each mechanism comparison with morphology/crystallinity-bounded "
+                "comparators before interpreting passivation, transport, or stability readouts."
+            ),
+            "reference_stack": lab_reference_stack,
+            "limits": "morphology-normalized route still requires same-sample mechanism readouts",
+        },
+        {
+            "route_id": "p_i_n_translation_route",
+            "route_logic": (
+                "Translate only design-level chemistry and readout logic to the lab inverted "
+                "p-i-n stack; re-test contact/selectivity alternatives."
+            ),
+            "reference_stack": lab_reference_stack,
+            "limits": f"primary axis `{classifier.primary_mechanism_axis}` may be architecture-sensitive",
+        },
+    ]
+
+
+def build_morphology_normalization_strategy(classifier: GapClassifierOutput) -> dict[str, Any]:
+    """State how morphology is bounded before mechanism closure."""
+    return {
+        "normalization_goal": (
+            "Make morphology and crystallinity explicit covariates rather than hidden causes."
+        ),
+        "morphology_readout_classes": [
+            "grain/crystallinity/phase readout class",
+            "film-coverage or roughness screen at design level",
+        ],
+        "normalization_rule": (
+            "Mechanism closure is blocked if morphology shifts in the same direction as "
+            f"`{classifier.primary_mechanism_axis}` and no morphology-normalized comparator exists."
+        ),
+        "allowed_interpretation": (
+            "Morphology can support Alt or define a boundary condition; it cannot by itself "
+            "prove passivation, transport, or contact mechanism closure."
+        ),
+    }
+
+
+def build_passivation_transport_tradeoff_logic(classifier: GapClassifierOutput) -> dict[str, Any]:
+    """Explain how passivation and transport/contact interpretations are separated."""
+    return {
+        "passivation_branch": [
+            "trap/nonradiative-recombination readouts",
+            "bulk versus interface recombination localization",
+        ],
+        "transport_contact_branch": [
+            "carrier extraction/collection timing",
+            "contact/barrier/selectivity diagnostics",
+        ],
+        "tradeoff_rule": (
+            "Strengthen passivation only when recombination/trap readouts explain the Gaia "
+            "update after transport/contact readouts are bounded; strengthen transport only "
+            "when extraction/contact readouts explain the update after recombination is bounded."
+        ),
+        "primary_axis": classifier.primary_mechanism_axis,
+    }
+
+
+def build_boundary_condition_tests(
+    gap: Gap, classifier: GapClassifierOutput
+) -> list[dict[str, Any]]:
+    """Return semantic boundary tests without recipe values."""
+    branches = infer_named_mechanism_branches(gap.text, classifier)
+    return [
+        {
+            "boundary_id": "beneficial_window_boundary",
+            "semantic_range": [
+                "baseline",
+                "reported beneficial window class",
+                "upper-boundary class",
+            ],
+            "target_branch": branches[0],
+            "non_recipe_note": "no exact concentration, solvent, or process values are emitted",
+        },
+        {
+            "boundary_id": "negative_mechanism_boundary",
+            "semantic_range": ["candidate mechanism class", "alternative-dominated class"],
+            "target_branch": branches[1] if len(branches) > 1 else classifier.alternative_class,
+            "non_recipe_note": "boundary is interpreted by readout direction, not by operational recipe",
+        },
+    ]
+
+
+def build_gaia_evidence_node_mapping(
+    target_claims: list[Any],
+    affected_conclusions: list[Any],
+    gap_claim_belief: Any,
+    evidence_brief: dict[str, Any],
+) -> dict[str, Any]:
+    """Map the planned matrix to Gaia update targets."""
+    return {
+        "target_claims": target_claims,
+        "affected_conclusions": affected_conclusions,
+        "gap_claim_belief": gap_claim_belief,
+        "source_dsl_nodes": evidence_brief.get("source_dsl_nodes", []),
+        "evidence_table_rows_used": len(evidence_brief.get("synthesis_evidence_table", [])),
+        "update_targets": [
+            "support_H",
+            "support_Alt",
+            "mixed_or_unresolved",
+        ],
+        "update_rule": (
+            "Update Gaia nodes only according to the outcome matrix; SQLite background "
+            "and cross-package LKM analogies cannot close a mechanism node alone."
+        ),
+    }
+
+
+def build_matrix_closure_rules(domain: dict[str, Any]) -> list[str]:
+    """Build V2 matrix-closure rules from the selected domain card."""
+    rules = as_list(domain.get("success_criterion_for_closing_gap"), default="")
+    rules.extend(
+        [
+            "same-sample readout bundle separates H from Alt",
+            "morphology/contact alternatives are bounded before Gaia belief update",
+            "SQLite precedent rows remain background and do not raise mechanism confidence",
+        ]
+    )
+    return [sanitize_design_level_text(rule) for rule in rules if not is_blank(rule)]
+
+
+def build_matrix_non_closure_rules(domain: dict[str, Any]) -> list[str]:
+    """Build V2 matrix non-closure rules from the selected domain card."""
+    rules = as_list(domain.get("non_closure_criteria"), default="")
+    rules.extend(
+        [
+            "semantic factor rows collapse into a single co-varying process window",
+            "readouts are not linked to the same comparison set",
+            "only SQLite broad-context precedent supports the interpretation",
+        ]
+    )
+    return [sanitize_design_level_text(rule) for rule in rules if not is_blank(rule)]
+
+
+def build_database_confidence(
+    retrieval: RetrievalSummary, gap: Gap, *, sqlite_weak: bool
+) -> dict[str, Any]:
+    """Build structured database confidence penalties for SQLite evidence."""
+    precedents = retrieval.database_precedents
+    parse_coverage = precedents.get("parse_coverage")
+    if not isinstance(parse_coverage, dict):
+        parse_coverage = {}
+    hysteresis_ratio = parse_coverage_ratio(parse_coverage.get("hysteresis"))
+    hysteresis_penalty = (
+        gap.gap_family == "ion_migration_hysteresis"
+        and hysteresis_ratio is not None
+        and hysteresis_ratio < 0.5
+    )
+    if sqlite_weak or hysteresis_penalty:
+        overall = "low"
+    elif precedents.get("sqlite_quality_warning"):
+        overall = "limited"
+    else:
+        overall = "screening_only"
+    return {
+        "overall": overall,
+        "metric_coverage": parse_coverage,
+        "interpretation_limit": (
+            "SQLite provides precedent/background and parse-coverage diagnostics only; "
+            "it cannot raise mechanism confidence or close Gaia mechanism nodes."
+        ),
+        "penalties": [
+            item
+            for item, active in (
+                ("weak_or_unusable_precedent_tiers", sqlite_weak),
+                ("low_hysteresis_coverage_for_ion_migration_gap", hysteresis_penalty),
+                ("low_metric_parse_coverage", parse_coverage_is_low(parse_coverage)),
+            )
+            if active
+        ],
+    }
+
+
+def build_top_reasoning_chains(
+    lkm: LkmSummary, classifier: GapClassifierOutput
+) -> list[dict[str, Any]]:
+    """Summarize LKM chains by reasoning relevance and scope."""
+    chains: list[dict[str, Any]] = []
+    scoped_chains = [
+        ("same_package", lkm.same_package_chains),
+        ("cross_package", lkm.cross_package_chains),
+        ("ambiguous_package_scope", lkm.unknown_package_chains),
+    ]
+    for scope, items in scoped_chains:
+        for item in items[:3]:
+            chains.append(
+                {
+                    "relevance": (
+                        "direct_source_context"
+                        if scope == "same_package"
+                        else "transfer_analogy"
+                        if scope == "cross_package"
+                        else "audit_only_ambiguous_scope"
+                    ),
+                    "supports": classifier.primary_mechanism_axis,
+                    "key_premise": sanitize_design_level_text(
+                        first_present(item, ("title", "claim_id", "chain_id", "local_id"))
+                    ),
+                    "key_limitation": (
+                        "same-package reasoning still requires H-vs-Alt readout closure"
+                        if scope == "same_package"
+                        else "not source-paper proof"
+                    ),
+                    "provenance": item,
+                }
+            )
+    if chains:
+        return chains[:5]
+    return [
+        {
+            "relevance": "lkm_unavailable",
+            "supports": "no mechanism confidence increase",
+            "key_premise": lkm.evidence_summary,
+            "key_limitation": "no auditable LKM reasoning chain was available",
+            "provenance": {},
+        }
+    ]
 
 
 def render_plan(cards: list[dict[str, Any]]) -> str:
@@ -4948,13 +5689,24 @@ def render_plan(cards: list[dict[str, Any]]) -> str:
                 ),
                 "",
                 f"- Source package: {card['source_package']}",
+                f"- Planning level: {card.get('planning_level')} ({card.get('execution_phase')})",
+                f"- Execution rationale: {card.get('execution_rationale')}",
                 (f"- Family/archetype: {card.get('gap_family')} / {card.get('card_archetype')}"),
                 f"- Template: {card.get('template_id')} ({card.get('template_resolution_status')})",
+                f"- Mechanism-decomposition question: {card.get('mechanism_decomposition_question')}",
                 f"- Hypothesis H: {card['hypothesis_H']}",
                 f"- Alternative Alt: {card['alternative_Alt']}",
                 f"- Discriminating observation: {card['discriminating_observation']}",
                 "- Primary readout classes: "
                 + "; ".join(readout_names(card.get("primary_readouts", []))),
+                "- Minimal matrix: "
+                + "; ".join(format_matrix_rows(card.get("minimal_discriminating_matrix", []))),
+                "- Route logic: " + "; ".join(format_route_designs(card.get("route_designs", []))),
+                "- Same-sample bundle: "
+                + "; ".join(format_measurement_bundle(card.get("same_sample_measurement_bundle"))),
+                "- Gaia update targets: "
+                + "; ".join(format_gaia_mapping(card.get("gaia_evidence_node_mapping"))),
+                f"- Lab reference stack: {card.get('lab_reference_stack')}",
                 f"- p-i-n translation note: {translation_note(card)}",
                 (
                     f"- SQLite role: {card['sqlite_role']} "
@@ -4976,6 +5728,56 @@ def render_plan(cards: list[dict[str, Any]]) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def format_matrix_rows(value: Any) -> list[str]:
+    """Format minimal matrix rows for Markdown."""
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for row in value[:4]:
+        if not isinstance(row, dict):
+            continue
+        rows.append(
+            f"{row.get('factor_group')}: {', '.join(stringify(item) for item in as_list(row.get('semantic_levels'), default=''))}"
+        )
+    return rows
+
+
+def format_route_designs(value: Any) -> list[str]:
+    """Format route design logic for Markdown."""
+    if not isinstance(value, list):
+        return []
+    routes: list[str] = []
+    for route in value[:3]:
+        if isinstance(route, dict):
+            routes.append(f"{route.get('route_id')}: {route.get('route_logic')}")
+    return routes
+
+
+def format_measurement_bundle(value: Any) -> list[str]:
+    """Format same-sample measurement bundle keys for Markdown."""
+    if not isinstance(value, dict):
+        return []
+    return [
+        f"{key}={len(item)}"
+        for key, item in value.items()
+        if isinstance(item, list) and key != "primary_axis"
+    ]
+
+
+def format_gaia_mapping(value: Any) -> list[str]:
+    """Format Gaia evidence-node mapping for Markdown."""
+    if not isinstance(value, dict):
+        return []
+    claims = len(as_list(value.get("target_claims"), default=""))
+    conclusions = len(as_list(value.get("affected_conclusions"), default=""))
+    table_rows = value.get("evidence_table_rows_used", 0)
+    return [
+        f"target_claims={claims}",
+        f"affected_conclusions={conclusions}",
+        f"synthesis_evidence_rows={table_rows}",
+    ]
 
 
 def readout_names(readouts: Any) -> list[str]:
@@ -5143,6 +5945,9 @@ def main(argv: list[str] | None = None) -> int:
     context_path = args.context or package / "experiment_context.yaml"
     context = load_yaml_mapping(context_path)
     context = augment_context_with_source_identifiers(package, context)
+    analysis_text = analysis_path.read_text(encoding="utf-8")
+    package_evidence_brief = build_package_evidence_brief(package, analysis_text)
+    context["package_evidence_brief"] = package_evidence_brief
     package_mode = package_mode_from_context(context)
     missing = check_context(context)
     if missing:
@@ -5158,7 +5963,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     supplemental_texts = [readme_path.read_text(encoding="utf-8")] if readme_path.exists() else []
-    gaps = extract_gaps(analysis_path.read_text(encoding="utf-8"), supplemental_texts)
+    gaps = extract_gaps(analysis_text, supplemental_texts)
     if not gaps:
         checked = [str(analysis_path)]
         if readme_path.exists():
@@ -5166,9 +5971,13 @@ def main(argv: list[str] | None = None) -> int:
         write_preflight(output_dir, ["experimental_gap"], checked)
         return 2
 
-    inputs_read = [str(analysis_path), str(context_path)]
+    inputs_read = list(
+        dict.fromkeys(
+            [str(analysis_path), str(context_path), *package_evidence_brief["inputs_read"]]
+        )
+    )
     if readme_path.exists():
-        inputs_read.append(str(readme_path))
+        inputs_read = list(dict.fromkeys([*inputs_read, str(readme_path)]))
     dotenv_paths = [
         package / ".env",
         output_dir / ".env",
@@ -5187,6 +5996,8 @@ def main(argv: list[str] | None = None) -> int:
         "lab_preferred_device_architecture": context.get(
             "lab_preferred_device_architecture", "inverted p-i-n"
         ),
+        "lab_reference_stack": context.get("lab_reference_stack", DEFAULT_LAB_REFERENCE_STACK),
+        "package_evidence_brief_inputs": package_evidence_brief["inputs_read"],
     }
     retrievals = [retrieve_sqlite(gap, context, args.sqlite_db) for gap in gaps]
     lkm_summaries = [
