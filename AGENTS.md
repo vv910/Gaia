@@ -147,6 +147,41 @@ the override is applied.
 Never use destructive git commands, force-push shared branches, or revert user changes
 unless the user explicitly requests it.
 
+### vv910 fork workflow
+
+This checkout is used as the vv910 personal fork workspace. Preserve the split between
+the upstream mirror and personal development:
+
+- `upstream/main` is the source repository trunk (`SiliconEinstein/Gaia`).
+- `origin/main` is the vv910 fork baseline and should stay synchronized with
+  `upstream/main`.
+- `personal/vv910-dev` is the long-lived branch for vv910-specific changes. New Codex
+  sessions that implement personal features should work on this branch, not directly on
+  `main` or `v0.5-dev`.
+
+When updating from the source repository, use the upstream mirror first, then merge that
+baseline into the personal branch:
+
+```bash
+git fetch upstream origin
+git switch v0.5-dev
+git merge --ff-only upstream/main
+git push origin v0.5-dev:main
+git switch personal/vv910-dev
+git merge v0.5-dev
+git push origin personal/vv910-dev
+```
+
+Use `merge` for the personal branch by default so pushed personal history remains stable.
+Use `rebase` only when the user explicitly asks for a linear rewrite and accepts the
+required `--force-with-lease` push. If conflicts appear, preserve upstream behavior unless
+the personal feature intentionally overrides it, then run the normal quality gates before
+pushing.
+
+The legacy checkout at `/personal/Gaia` may contain old local changes. Do not use it for
+fork synchronization unless the user explicitly asks; prefer this `/personal/Gaia-v0.5`
+checkout or a fresh worktree from `personal/vv910-dev`.
+
 ## Community
 
 - License: MIT, see [`LICENSE`](LICENSE).
