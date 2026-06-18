@@ -18,20 +18,26 @@ gaia build init/pkg scaffold --> gaia pkg add --> write package or gaia author/b
 (scaffold)                  (add deps)    (DSL code / cli-as-client)       (DSL -> IR)     (validate)    (BP)            (present)              (registry PR)
 ```
 
-Supporting command groups cover review, trace audit, and visualization. They
-are not interchangeable: `inquiry` maintains review-state ledgers, `trace`
-audits externally recorded ARM trace files and can write review snapshots, and
-`inspect` writes graph visualization artifacts.
+Supporting command groups cover review, trace audit, visualization, and
+optional research plugins. They are not interchangeable: `inquiry` maintains
+review-state ledgers, `trace` audits externally recorded ARM trace files and can
+write review snapshots, and `inspect` writes graph visualization artifacts.
+Upper research workflows are owned by the external `gaia-research` package;
+Gaia core only exposes `gaia research` when that plugin is installed, otherwise
+the command prints an install hint.
 
 ```
 gaia inquiry  — local review loop (focus / obligation / hypothesis / review)
 gaia trace    — inference-trace verification and audit (verify / review / show)
 gaia inspect starmap  — package-graph visualization (html / dot / svg)
+gaia research — external gaia-research plugin when installed
 ```
 
 `gaia run infer` is required before `gaia run render --target github`; `--target docs` works without it (beliefs enrich the output when available but are not required).
 
 Entry point: installed as the `gaia` CLI command via `pyproject.toml` `[project.scripts]`, backed by a Typer app at `gaia.cli.main:app`.
+
+Research-loop handoff reference: [Research Loop Handoff](research-loop.md).
 
 
 ## Commands

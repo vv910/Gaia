@@ -1,10 +1,18 @@
 # Research Actions Migration Notes
 
-> **状态：** package-native research actions 设计的 canonical migration companion。
+> **状态：** Historical / prior-art migration notes。它记录从
+> `gaia-lkm-explore` 到 package-native research actions 的迁移经验，但不再是当前
+> canonical migration companion。
 >
 > **日期：** 2026-06-01
 >
-> **Canonical overview：**
+> **当前 canonical 验收标准：**
+> [Research Module Split Acceptance](2026-06-13-research-module-split-acceptance.md)
+>
+> **当前执行计划：**
+> [Research Report Workflow Parity Migration Plan](../plans/2026-06-13-research-report-workflow-parity-migration.md)
+>
+> **Prior-art overview：**
 > [Research Actions Package-Native Overview](2026-06-01-research-actions-package-native-overview.md)
 >
 > **Roadmap：**
@@ -12,14 +20,20 @@
 
 ## 1. 文档状态图
 
-当前实现锚点是 package-native `gaia research` 设计。旧 exploration 文档仍然有参考价值，
-但不是 implementation contract。
+> **2026-06-13 correction:** 当前实现锚点已经变成
+> `gaia-research` report workflow parity migration。本文中的 package-native
+> `gaia research` 设计只作为 prior art；不要把它当作本轮完成标准。
+
+当前实现锚点是 `gaia-research` report workflow parity migration。旧 package-native
+research actions 和 exploration 文档仍然有参考价值，但不是 implementation contract。
 
 | 文档或分支 | 状态 | 可以用于 | 不要作为 |
 | --- | --- | --- | --- |
-| `2026-06-01-research-actions-package-native-overview.md` | canonical | 架构锚点 | 迁移细节日志 |
-| `2026-06-01-research-actions-knowledge-model.md` | canonical | focus / obligation / assessment relation 分层 | 迁移计划 |
-| `2026-06-01-research-actions-implementation-roadmap.md` | canonical | 实现切片和验证 | 架构长篇论证 |
+| `2026-06-13-research-module-split-acceptance.md` | canonical | split 验收标准、ownership 边界、本轮 scope | 具体任务清单 |
+| `../plans/2026-06-13-research-report-workflow-parity-migration.md` | canonical current plan | report workflow parity migration | graph-session 扩展计划 |
+| `2026-06-01-research-actions-package-native-overview.md` | historical / prior art | package-native artifact / promotion policy 经验 | 当前 split target |
+| `2026-06-01-research-actions-knowledge-model.md` | historical / prior art | focus / obligation / assessment relation 分层 | 当前迁移计划 |
+| `2026-06-01-research-actions-implementation-roadmap.md` | historical / prior art | 旧实现切片和验证经验 | 当前 roadmap |
 | `2026-05-25-gaia-lkm-explore-assess-design.md` | experimental / historical | 早期 Explore / Assess 拆分思路 | 当前 contract |
 | `2026-05-26-lkm-explore-artifact-mvp-design.md` | experimental / historical | artifact MVP 经验 | 当前 artifact schema |
 | `2026-05-27-lkm-explore-iterative-landscape-design.md` | experimental / historical | iterative landscape 经验 | 当前实现计划 |
@@ -76,7 +90,7 @@ contract。
 
 | 状态 | 位置 | 含义 |
 | --- | --- | --- |
-| Research artifact | `.gaia/research/explore/` 或 `.gaia/research/assess/` | search lead、snippet、candidate relation、candidate focus；还不能进入 BP |
+| Research artifact | `.gaia/research/explore/` 或 `.gaia/research/assess/` | search lead、item reference、candidate relation、candidate focus；还不能进入 BP |
 | Formal Gaia source | `src/<pkg>/...` | 已接受并 formalized 的 Gaia DSL source |
 
 从 artifact promotion 到 formal source 时，必须检查 raw payload、evidence status、scope
@@ -90,7 +104,7 @@ PR #726 验证了有用的 agent-protocol 经验：
 - self-contained task instructions；
 - schema validation；
 - allowed refs 和 grounding checks；
-- assessment context 里必须有 retrieved snippets；
+- assessment context 里必须有从 landscape/search result 汇总出的 items；
 - event traces。
 
 这些经验应该被吸收到 package-native actions 或 Gaia primitives 背后。
@@ -104,8 +118,10 @@ PR #726 不应该成为 canonical architecture：
 
 ## 5. 后续文档规则
 
-新的实现 PR 如果需要引用历史文档，应该先链接 canonical overview，再把历史文档作为
-reference material。不要再把新需求加到 historical specs 里。
+新的实现 PR 如果需要引用历史文档，应该先链接
+[Research Module Split Acceptance](2026-06-13-research-module-split-acceptance.md)
+和当前 plan，再把历史文档作为 reference material。不要再把新需求加到 historical
+specs 里。
 
 ## 6. 共存期 Artifact 规则
 
@@ -113,12 +129,13 @@ reference material。不要再把新需求加到 historical specs 里。
 
 ```text
 .gaia/exploration/   # legacy experimental engine state
-.gaia/research/      # canonical package-native research artifacts
+.gaia/research/      # package-native research trace / audit artifacts
 ```
 
 共存期规则：
 
-- `.gaia/research/` 是 `gaia research` 的 canonical artifact location。
+- `.gaia/research/` 是 `gaia research` 的 trace / audit artifact location；语义
+  source of truth 应落在 package source 和 `.gaia/inquiry/`。
 - `.gaia/exploration/` 可以作为 import / migration source 读取，但不能作为新的
   canonical source of truth。
 - `gaia research` 不应双写两棵树；需要兼容旧结果时，显式执行 import/migrate step，

@@ -21,6 +21,8 @@ from typer.testing import CliRunner
 from gaia.cli._credentials import CredentialPermissionError
 from gaia.cli.commands.search.lkm import _shared
 from gaia.cli.commands.search.lkm._client import (
+    LKMNotFoundError,
+    LKMPermissionError,
     LKMTransportError,
     NoAccessKeyError,
 )
@@ -364,10 +366,62 @@ class TestKnowledge:
         result = runner.invoke(app, ["search", "lkm", "knowledge", "q"])
         assert result.exit_code == 2, result.output
 
+    def test_permission_error_exits_2(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_client(monkeypatch, raises=LKMPermissionError("denied"))
+        result = runner.invoke(app, ["search", "lkm", "knowledge", "q"])
+        assert result.exit_code == 2, result.output
+        assert "denied" in result.output
+
+    def test_not_found_error_exits_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_client(monkeypatch, raises=LKMNotFoundError("missing"))
+        result = runner.invoke(app, ["search", "lkm", "knowledge", "q"])
+        assert result.exit_code == 1, result.output
+        assert "missing" in result.output
+
     def test_no_key_exits_3(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_client(monkeypatch, raises=NoAccessKeyError("no key"))
         result = runner.invoke(app, ["search", "lkm", "knowledge", "q"])
         assert result.exit_code == 3, result.output
+
+    @pytest.mark.parametrize(
+        ("retry_error", "expected_exit", "expected_text"),
+        [
+            (LKMPermissionError("denied after onboarding"), 2, "denied after onboarding"),
+            (LKMNotFoundError("missing after onboarding"), 1, "missing after onboarding"),
+        ],
+    )
+    def test_retry_after_onboarding_maps_typed_errors(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        retry_error: Exception,
+        expected_exit: int,
+        expected_text: str,
+    ) -> None:
+        attempts = 0
+
+        class RetryClient:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise NoAccessKeyError("no key")
+
+            def __enter__(self) -> RetryClient:
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+            def request(self, *_args: object, **_kwargs: object) -> dict[str, object]:
+                raise retry_error
+
+        monkeypatch.setattr(_shared, "LKMClient", RetryClient)
+        monkeypatch.setattr(_shared, "try_interactive_onboarding", lambda **_kwargs: True)
+
+        result = runner.invoke(app, ["search", "lkm", "knowledge", "q"])
+
+        assert result.exit_code == expected_exit, result.output
+        assert expected_text in result.output
 
     def test_credential_permission_error_exits_2_without_traceback(
         self, monkeypatch: pytest.MonkeyPatch
