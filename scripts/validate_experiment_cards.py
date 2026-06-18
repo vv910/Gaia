@@ -45,6 +45,7 @@ REQUIRED_FIELDS = (
     "lkm_role",
     "lkm_design_reasoning",
     "lkm_evidence_summary",
+    "top_reasoning_chains",
     "mechanism_source_breakdown",
     "same_package_lkm_chains",
     "cross_package_lkm_chains",
@@ -78,7 +79,7 @@ REAL_PACKAGE_FIELDS = (
     "source_package",
     "target_claims",
     "affected_conclusions",
-    "current_belief",
+    "gap_claim_belief",
     "original_evidence_gap_text",
     "source_device_context",
     "lab_translation_context",
@@ -114,8 +115,49 @@ OUTCOME_MATRIX_FIELDS = {
 }
 
 PARSE_COVERAGE_METRICS = ("pce", "ff", "voc", "jsc", "hysteresis")
-TOP_ROW_FIELDS = ("similarity_score", "why_comparable", "why_limited", "parsed_deltas")
-TIER_COUNT_KEYS = ("tier1", "tier2", "tier3", "rejected")
+TOP_ROW_FIELDS = (
+    "similarity_score",
+    "precedent_group",
+    "why_comparable",
+    "why_limited",
+    "parsed_deltas",
+)
+TIER_COUNT_KEYS = (
+    "tier1_strong_precedent",
+    "tier2_related_precedent",
+    "tier3_broad_context",
+    "rejected_or_unusable",
+)
+SIMILARITY_SCORE_FIELDS = (
+    "architecture",
+    "absorber",
+    "intervention_location",
+    "modulator_family",
+    "paired_metric_completeness",
+    "mechanism_relevance",
+    "total",
+)
+V2_RECOMMENDED_FIELDS = (
+    "planning_level",
+    "execution_phase",
+    "depends_on",
+    "enables",
+    "execution_rationale",
+    "package_evidence_brief",
+    "mechanism_decomposition_question",
+    "factor_decomposition",
+    "minimal_discriminating_matrix",
+    "route_designs",
+    "morphology_normalization_strategy",
+    "same_sample_measurement_bundle",
+    "passivation_transport_tradeoff_logic",
+    "boundary_condition_tests",
+    "gaia_evidence_node_mapping",
+    "matrix_closure_rules",
+    "matrix_non_closure_rules",
+    "lab_reference_stack",
+    "database_confidence",
+)
 
 GENERIC_DEVICE_CONTEXTS = {
     "perovskite solar cell",
@@ -259,9 +301,62 @@ OPERATIONAL_RECIPE_MARKERS = (
     "rpm",
 )
 OPERATIONAL_RECIPE_PATTERNS = (
-    re.compile(r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mm|mM|mol\s*/\s*l|wt%|vol%)\b", re.I),
+    re.compile(
+        r"\b\d+(?:\.\d+)?\s*(?:mg\s*/\s*ml|mg\s+ml-1|mm|mM|mol\s*/\s*l|"
+        r"mol\s*%|mol%|wt\s*%|wt%|vol\s*%|vol%)(?=\b|[^A-Za-z0-9_])",
+        re.I,
+    ),
+    re.compile(
+        r"\b\d+(?:\.\d+)?\s*%\b(?=\s*(?:excess|best|optimum|optimal|window|boundary|dose))",
+        re.I,
+    ),
     re.compile(r"\b\d+(?:\.\d+)?\s*(?:ul|uL|ml|mL)\b"),
     re.compile(r"\b(?:anneal|heating|heat)\b.{0,40}\b\d{2,3}\s*(?:degc|c|°c)\b", re.I),
+    re.compile(
+        r"(?i)(?:(?<=_)|^)(?:one|two|three|four|five|six|seven|eight|nine|ten)_percent(?=_|$)"
+    ),
+    re.compile(r"(?i)(?:(?<=_)|^)\d+(?:_\d+)?(?:m|mm|mol|pct|percent)(?=_|$)"),
+    re.compile(r"(?i)(?:(?<=_)|^)recipe\d+(?:_\d+)*(?=_|$)"),
+)
+SYNTHESIS_EVIDENCE_TABLE_FIELDS = (
+    "candidate_synthesis_claim",
+    "source_labels",
+    "evidence_class",
+    "direction",
+    "confidence_tier",
+    "over_counting_risk",
+)
+SEMANTIC_MATRIX_ROW_FIELDS = (
+    "row_label",
+    "evidence_basis",
+    "source_labels",
+    "variable_role",
+    "held_constant_design_assumptions",
+    "discriminating_readouts",
+    "h_alt_interpretation",
+    "closure_rule",
+    "non_closure_rule",
+)
+BROAD_FACTOR_GROUPS = {
+    "intervention_family_axis",
+    "absorber_or_phase_axis",
+    "mechanism_axis",
+    "morphology_normalization_axis",
+    "architecture_translation_axis",
+}
+REQUIRED_BUNDLE_CLASSES = (
+    "phase_composition",
+    "residual_phase_quantification",
+    "recombination_trap",
+    "device_metrics",
+    "stability_readout_history",
+)
+PBX2_REQUIRED_UPDATE_LABELS = (
+    "chloride_distribution_isolated",
+    "pb_rich_residue_effect_isolated",
+    "morphology_normalization_survives",
+    "wrong_location_residual_phase_penalty",
+    "high_boundary_negative_case_confirmed",
 )
 
 
@@ -432,6 +527,8 @@ def validate_card(
                 required.append(field_name)
 
     validate_required_fields(card, required, result, card_path)
+    validate_v2_planning_fields(card, result, card_path, smoke_test=smoke_test)
+    warn_legacy_current_belief(card, result, card_path)
 
     if not smoke_test:
         source_context = card.get("source_device_context")
@@ -461,6 +558,7 @@ def validate_card(
         result,
         path_join(card_path, "database_precedents"),
     )
+    validate_database_confidence(card.get("database_confidence"), result, card_path)
     validate_sqlite_role(card.get("sqlite_role"), result, path_join(card_path, "sqlite_role"))
     validate_design_memory_role(
         card.get("design_memory_role"), result, path_join(card_path, "design_memory_role")
@@ -471,6 +569,9 @@ def validate_card(
         path_join(card_path, "design_motif_evidence"),
     )
     warn_database_confidence_limitations(card, result, card_path)
+    warn_weak_sqlite_tier_distribution(card, result, card_path)
+    warn_suspicious_similarity_scores(card, result, card_path)
+    warn_hysteresis_low_coverage(card, result, card_path)
     validate_mechanism_source_breakdown(
         card.get("mechanism_source_breakdown"),
         result,
@@ -503,6 +604,19 @@ def validate_card(
         card.get("gap_resolution_strategy"),
         result,
         path_join(card_path, "gap_resolution_strategy"),
+    )
+    validate_synthesis_evidence_table(card, result, card_path)
+    validate_semantic_matrix(card, result, card_path)
+    validate_same_sample_bundle(
+        card.get("same_sample_measurement_bundle"),
+        result,
+        path_join(card_path, "same_sample_measurement_bundle"),
+    )
+    validate_gaia_update_labels(
+        card.get("gaia_evidence_node_mapping"),
+        card,
+        result,
+        path_join(card_path, "gaia_evidence_node_mapping"),
     )
     validate_causal_isolation_controls(card, result, card_path)
     warn_readout_mappings(
@@ -550,12 +664,80 @@ def validate_required_fields(
                 "using legacy `device_context` as a transitional alias"
             )
             continue
+        if (
+            field_name == "gap_claim_belief"
+            and is_missing(card.get(field_name))
+            and not is_missing(card.get("current_belief"))
+        ):
+            result.warnings.append(
+                f"{card_path}.gap_claim_belief: using legacy `current_belief` as "
+                "a transitional alias"
+            )
+            continue
         if field_name in presence_only_fields:
             if field_name not in card:
                 result.errors.append(f"{card_path}.{field_name}: required field is missing")
             continue
         if is_missing(card.get(field_name)):
             result.errors.append(f"{card_path}.{field_name}: required field is missing")
+
+
+def validate_v2_planning_fields(
+    card: dict[str, Any],
+    result: ValidationResult,
+    card_path: str,
+    *,
+    smoke_test: bool = False,
+) -> None:
+    """Warn on missing V2 planner fields and validate planning-level semantics."""
+    for field_name in V2_RECOMMENDED_FIELDS:
+        if is_missing(card.get(field_name)):
+            if field_name == "planning_level" and stringify(card.get("package_mode")) == (
+                "aggregate_corpus"
+            ):
+                result.warnings.append(
+                    f"{card_path}.planning_level: aggregate card lacks planning_level"
+                )
+            else:
+                result.warnings.append(f"{card_path}.{field_name}: V2 planner field is missing")
+
+    planning_level = stringify(card.get("planning_level")).strip()
+    if not planning_level:
+        return
+    if planning_level not in {"aggregate_roadmap", "implementation_candidate"}:
+        result.errors.append(
+            f"{card_path}.planning_level: must be aggregate_roadmap or implementation_candidate"
+        )
+        return
+
+    package_mode = stringify(card.get("package_mode")).strip()
+    if package_mode == "aggregate_corpus" and planning_level != "aggregate_roadmap":
+        result.warnings.append(
+            f"{card_path}.planning_level: aggregate_corpus cards should default to "
+            "aggregate_roadmap"
+        )
+    if planning_level == "implementation_candidate" and not smoke_test:
+        source_context = card.get("source_device_context", card.get("device_context"))
+        if not isinstance(source_context, dict):
+            result.errors.append(
+                f"{card_path}.planning_level: implementation_candidate requires concrete "
+                "source context"
+            )
+            return
+        for field_name in DEVICE_CONTEXT_FIELDS:
+            if is_missing(source_context.get(field_name)):
+                result.errors.append(
+                    f"{card_path}.planning_level: implementation_candidate requires "
+                    f"source_device_context.{field_name}"
+                )
+
+
+def warn_legacy_current_belief(
+    card: dict[str, Any], result: ValidationResult, card_path: str
+) -> None:
+    """Warn when the legacy belief field remains in a card."""
+    if "current_belief" in card:
+        result.warnings.append(f"{card_path}.current_belief: legacy field; use gap_claim_belief")
 
 
 def validate_device_context(
@@ -717,6 +899,28 @@ def validate_top_precedent_rows(rows: Any, result: ValidationResult, path: str) 
                 result.errors.append(
                     f"{row_path}.{field_name}: required precedent field is missing"
                 )
+        validate_similarity_score_breakdown(
+            row.get("similarity_score"), result, path_join(row_path, "similarity_score")
+        )
+
+
+def validate_similarity_score_breakdown(value: Any, result: ValidationResult, path: str) -> None:
+    """Validate V2 SQLite similarity-score breakdowns."""
+    if isinstance(value, int | float):
+        result.warnings.append(
+            f"{path}: legacy numeric similarity_score; V2 expects a component breakdown"
+        )
+        return
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: must be a mapping with component scores")
+        return
+    for field_name in SIMILARITY_SCORE_FIELDS:
+        if field_name not in value:
+            result.errors.append(f"{path}.{field_name}: similarity component is missing")
+            continue
+        numeric = value.get(field_name)
+        if not isinstance(numeric, int | float):
+            result.errors.append(f"{path}.{field_name}: similarity component must be numeric")
 
 
 def validate_sqlite_role(value: Any, result: ValidationResult, path: str) -> None:
@@ -913,6 +1117,99 @@ def warn_database_confidence_limitations(
         )
 
 
+def validate_database_confidence(value: Any, result: ValidationResult, path: str) -> None:
+    """Validate the structured V2 database-confidence limitation."""
+    if is_missing(value):
+        return
+    if isinstance(value, str):
+        result.warnings.append(
+            f"{path}.database_confidence: legacy string value; V2 expects a mapping"
+        )
+        return
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}.database_confidence: must be a mapping")
+        return
+    for field_name in ("overall", "metric_coverage", "interpretation_limit"):
+        if is_missing(value.get(field_name)):
+            result.errors.append(
+                f"{path}.database_confidence.{field_name}: required field is missing"
+            )
+    limit_text = stringify(value.get("interpretation_limit")).lower()
+    if limit_text and (
+        "cannot raise mechanism confidence" not in limit_text or "close" not in limit_text
+    ):
+        result.warnings.append(
+            f"{path}.database_confidence.interpretation_limit: should state SQLite "
+            "cannot raise mechanism confidence or close mechanism nodes"
+        )
+
+
+def warn_weak_sqlite_tier_distribution(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Warn when broad-context SQLite rows dominate precedent tiers."""
+    precedents = card.get("database_precedents")
+    if not isinstance(precedents, dict):
+        return
+    tier1 = numeric_count(lookup_tier_count(precedents, "tier1_strong_precedent"))
+    tier2 = numeric_count(lookup_tier_count(precedents, "tier2_related_precedent"))
+    tier3 = numeric_count(lookup_tier_count(precedents, "tier3_broad_context"))
+    rejected = numeric_count(lookup_tier_count(precedents, "rejected_or_unusable"))
+    if tier3 + rejected > tier1 + tier2 and tier1 == 0:
+        result.warnings.append(
+            f"{path}.database_precedents.tier_counts: broad context or unusable SQLite "
+            "rows dominate; keep confidence penalized"
+        )
+
+
+def warn_suspicious_similarity_scores(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Warn when multiple SQLite rows report a perfect total similarity."""
+    rows = collect_precedent_rows(card.get("database_precedents"))
+    perfect_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict) and similarity_total(row.get("similarity_score")) == 1.0
+    ]
+    if len(perfect_rows) >= 2:
+        result.warnings.append(
+            f"{path}.database_precedents.top_precedent_rows: repeated "
+            "similarity_score.total == 1.0 is suspicious"
+        )
+
+
+def warn_hysteresis_low_coverage(card: dict[str, Any], result: ValidationResult, path: str) -> None:
+    """Warn when hysteresis-focused cards have poor hysteresis parse coverage."""
+    card_text = " ".join(
+        text.lower()
+        for _, text in iter_strings(
+            {
+                "gap_type": card.get("gap_type"),
+                "gap_family": card.get("gap_family"),
+                "mechanism_axes": card.get("mechanism_axes"),
+                "primary_mechanism_axis": card.get("primary_mechanism_axis"),
+                "original_evidence_gap_text": card.get("original_evidence_gap_text"),
+            },
+            path,
+        )
+    )
+    if "hysteresis" not in card_text and "ion_migration" not in card_text:
+        return
+    precedents = card.get("database_precedents")
+    if not isinstance(precedents, dict):
+        return
+    coverage = precedents.get("parse_coverage")
+    if not isinstance(coverage, dict):
+        return
+    ratio = parse_coverage_ratio(coverage.get("hysteresis"))
+    if ratio is not None and ratio < 0.5:
+        result.warnings.append(
+            f"{path}.database_precedents.parse_coverage.hysteresis: low hysteresis "
+            "coverage penalizes ion-migration/hysteresis confidence"
+        )
+
+
 def parse_coverage_is_low(parse_coverage: dict[str, Any]) -> bool:
     """Return true when a parse-coverage mapping contains a low ratio."""
     for value in parse_coverage.values():
@@ -953,16 +1250,46 @@ def parse_coverage_ratio(value: Any) -> float | None:
     return numerator / denominator
 
 
+def numeric_count(value: Any) -> int:
+    """Convert loose tier counts to integers."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def similarity_total(value: Any) -> float:
+    """Read a V2 or legacy similarity score total."""
+    if isinstance(value, dict):
+        value = value.get("total")
+    if isinstance(value, int | float):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def lookup_tier_count(database_precedents: dict[str, Any], tier: str) -> Any:
     """Find a tier count across accepted tier-count shapes."""
-    direct_names = (f"{tier}_count", f"{tier[0:4]}_{tier[4:]}_count")
+    legacy_aliases = {
+        "tier1_strong_precedent": ("tier1", "tier1_count"),
+        "tier2_related_precedent": ("tier2", "tier2_count"),
+        "tier3_broad_context": ("tier3", "tier3_count"),
+        "rejected_or_unusable": ("rejected", "rejected_count"),
+    }
+    direct_names = (tier, f"{tier}_count", *legacy_aliases.get(tier, ()))
     for name in direct_names:
         if name in database_precedents:
             return database_precedents[name]
 
     tier_counts = database_precedents.get("tier_counts")
     if isinstance(tier_counts, dict):
-        for name in (tier, f"{tier}_count"):
+        for name in direct_names:
             if name in tier_counts:
                 return tier_counts[name]
     return None
@@ -1020,11 +1347,173 @@ def validate_gap_resolution_strategy(value: Any, result: ValidationResult, path:
         result.errors.append(f"{path}.decomposition_axes: should include multiple alternatives")
 
 
+def validate_synthesis_evidence_table(
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Validate parsed SYNTHESIS_PLAN Evidence Table rows when present."""
+    brief = card.get("package_evidence_brief")
+    if not isinstance(brief, dict):
+        return
+    inputs = brief.get("inputs_read")
+    inputs_text = " ".join(stringify(item) for item in as_iterable(inputs)).lower()
+    rows = brief.get("synthesis_evidence_table")
+    if "synthesis_plan.md" not in inputs_text and is_missing(rows):
+        return
+    if not isinstance(rows, list) or not rows:
+        result.errors.append(
+            f"{path}.package_evidence_brief.synthesis_evidence_table: "
+            "SYNTHESIS_PLAN.md was read but no Evidence Table rows were parsed"
+        )
+        return
+
+    for index, row in enumerate(rows):
+        row_path = path_join(
+            path_join(path, "package_evidence_brief.synthesis_evidence_table"),
+            index,
+        )
+        if not isinstance(row, dict):
+            result.errors.append(f"{row_path}: Evidence Table row must be a mapping")
+            continue
+        for field_name in SYNTHESIS_EVIDENCE_TABLE_FIELDS:
+            if is_missing(row.get(field_name)):
+                result.errors.append(f"{row_path}.{field_name}: parsed field is missing")
+
+
+def validate_semantic_matrix(  # noqa: C901
+    card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Validate concrete semantic matrix rows for aggregate planning."""
+    matrix = card.get("minimal_discriminating_matrix")
+    matrix_path = path_join(path, "minimal_discriminating_matrix")
+    if not isinstance(matrix, list) or not matrix:
+        result.errors.append(f"{matrix_path}: required non-empty matrix is missing")
+        return
+
+    semantic_rows = [
+        row for row in matrix if isinstance(row, dict) and not is_missing(row.get("row_label"))
+    ]
+    package_mode = stringify(card.get("package_mode"))
+    if package_mode == "aggregate_corpus":
+        if not semantic_rows:
+            result.errors.append(
+                f"{matrix_path}: aggregate plans require concrete semantic rows, "
+                "not only broad factor axes"
+            )
+        factor_groups = {
+            stringify(row.get("factor_group"))
+            for row in matrix
+            if isinstance(row, dict) and not is_missing(row.get("factor_group"))
+        }
+        if not semantic_rows and factor_groups and factor_groups <= BROAD_FACTOR_GROUPS:
+            result.errors.append(
+                f"{matrix_path}: aggregate plan emits only broad factor axes without "
+                "package-evidence semantic rows"
+            )
+
+    for index, row in enumerate(semantic_rows):
+        row_path = path_join(matrix_path, index)
+        for field_name in SEMANTIC_MATRIX_ROW_FIELDS:
+            if is_missing(row.get(field_name)):
+                result.errors.append(f"{row_path}.{field_name}: semantic matrix field is missing")
+        interpretation = row.get("h_alt_interpretation")
+        if isinstance(interpretation, dict):
+            for branch in ("supports_H", "supports_Alt", "mixed_or_unresolved"):
+                if is_missing(interpretation.get(branch)):
+                    result.errors.append(f"{row_path}.h_alt_interpretation.{branch}: missing")
+
+    if evidence_text_has_pbx2(card):
+        labels = {stringify(row.get("row_label")) for row in semantic_rows}
+        required = {
+            "baseline",
+            "Pb-rich only",
+            "chloride-source only",
+            "PbCl2 isolead substitution",
+            "PbCl2 excess coupling",
+            "chloride + Pb-rich combined",
+            "high-boundary condition",
+        }
+        missing = sorted(required - labels)
+        if missing:
+            result.errors.append(
+                f"{matrix_path}: PbX2/chloride evidence requires semantic rows {', '.join(missing)}"
+            )
+
+
+def validate_same_sample_bundle(value: Any, result: ValidationResult, path: str) -> None:
+    """Require the mechanism-decomposition same-sample readout bundle classes."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: same-sample bundle must be a mapping")
+        return
+    for key in REQUIRED_BUNDLE_CLASSES:
+        if is_missing(value.get(key)):
+            result.errors.append(f"{path}.{key}: required same-sample bundle class is missing")
+
+
+def validate_gaia_update_labels(
+    value: Any, card: dict[str, Any], result: ValidationResult, path: str
+) -> None:
+    """Require readable Gaia update labels instead of opaque E-style IDs."""
+    if not isinstance(value, dict):
+        result.errors.append(f"{path}: Gaia update mapping must be a mapping")
+        return
+    labels = value.get("readable_update_labels")
+    if is_missing(labels):
+        labels = value.get("update_targets")
+    label_list = [stringify(item) for item in as_iterable(labels) if not is_missing(item)]
+    if not label_list:
+        result.errors.append(f"{path}.readable_update_labels: no readable update labels found")
+        return
+    for label in label_list:
+        if re.fullmatch(r"E\d+", label.strip(), flags=re.I):
+            result.errors.append(f"{path}.readable_update_labels: opaque update label `{label}`")
+        if label in {"support_H", "support_Alt", "mixed_or_unresolved"}:
+            result.errors.append(
+                f"{path}.readable_update_labels: `{label}` is an outcome state, "
+                "not a readable Gaia update label"
+            )
+
+    if evidence_text_has_pbx2(card):
+        missing = [label for label in PBX2_REQUIRED_UPDATE_LABELS if label not in label_list]
+        if missing:
+            result.errors.append(
+                f"{path}.readable_update_labels: PbX2/chloride evidence requires "
+                f"{', '.join(missing)}"
+            )
+
+
+def evidence_text_has_pbx2(card: dict[str, Any]) -> bool:
+    """Return true when card-local evidence contains PbX2/chloride synthesis motifs."""
+    text = " ".join(
+        text.lower() for _, text in iter_strings(card.get("package_evidence_brief"), "")
+    )
+    return contains_any(text, ("pbcl2", "pbi2", "pb-rich", "residual pb", "chloride-source"))
+
+
+def as_iterable(value: Any) -> list[Any]:
+    """Return a list from common scalar/list values."""
+    if is_missing(value):
+        return []
+    if isinstance(value, list | tuple | set):
+        return list(value)
+    return [value]
+
+
 def validate_causal_isolation_controls(
     card: dict[str, Any], result: ValidationResult, path: str
 ) -> None:
     """Require analog-control logic for causal-attribution gaps."""
-    card_text = " ".join(text.lower() for _, text in iter_strings(card, path))
+    card_text = " ".join(
+        text.lower()
+        for _, text in iter_strings(
+            {
+                "gap_type": card.get("gap_type"),
+                "scientific_uncertainty": card.get("scientific_uncertainty"),
+                "original_evidence_gap_text": card.get("original_evidence_gap_text"),
+                "mechanism_decomposition_question": card.get("mechanism_decomposition_question"),
+            },
+            path,
+        )
+    )
     if not any(marker in card_text for marker in CAUSAL_ATTRIBUTION_MARKERS):
         return
 
@@ -1181,13 +1670,18 @@ def warn_unknown_composition_confidence(
 
 
 def collect_precedent_rows(value: Any) -> list[Any]:
-    """Return top precedent rows when present."""
+    """Return precedent rows from top and demoted V2 surfaces."""
     if isinstance(value, list):
         return value
     if isinstance(value, dict):
+        collected: list[Any] = []
         rows = lookup_top_rows(value)
         if isinstance(rows, list):
-            return rows
+            collected.extend(rows)
+        demoted = value.get("demoted_precedent_rows")
+        if isinstance(demoted, list):
+            collected.extend(demoted)
+        return collected
     return []
 
 

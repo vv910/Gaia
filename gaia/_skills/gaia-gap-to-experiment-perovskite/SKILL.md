@@ -11,22 +11,26 @@ description: |
   experiment cards.
 ---
 
-# Perovskite Gap-To-Experiment Cards
+# Perovskite Mechanism-Decomposition Planner
 
 ## Purpose
 
-Turn Gaia Evidence Gaps into concrete research-planning cards for perovskite
-solar-cell experiments. Gaia identifies the weak nodes and affected
-conclusions; the local SQLite database supplies same-family literature
-precedents and matched-control deltas; LKM supplies mechanism claims and
-reasoning chains; this skill synthesizes those inputs into ranked cards.
+Turn Gaia Evidence Gaps into design-level mechanism-decomposition plans for
+perovskite solar-cell experiments. Gaia identifies weak nodes and affected
+conclusions; `SYNTHESIS_PLAN.md` Evidence Table rows, when present, are the
+priority structured evidence brief for aggregate packages; package artifacts
+fill any remaining context. LKM supplies mechanism claims and reasoning chains;
+the local SQLite database supplies precedent/background only. The skill
+synthesizes those inputs into ranked plans with evidence-derived semantic
+matrix rows, execution sequencing, route logic, same-sample readout bundles,
+confidence penalties, and Gaia evidence-node update targets.
 
 This is a reusable skill-level policy. Do not write package-specific hotfixes,
 special cases, or hard-coded rules for one generated Gaia package. Package
 facts may lock context, but the conversion strategy must remain configurable
 and reusable for future perovskite Gaia packages.
 
-The primary deliverable is automated experiment-plan generation. SQLite
+The primary deliverable is automated mechanism-decomposition planning. SQLite
 retrieval, LKM retrieval, context extraction, and validation are intermediate
 steps whose purpose is to produce `EXPERIMENT_PLAN.md`, `experiments.yaml`,
 `retrieval_evidence.yaml`, and LKM diagnostics.
@@ -65,8 +69,10 @@ Hard constraints:
 
 - SQLite rows must not be the primary evidence for mechanism attribution.
 - SQLite deltas must not close a mechanism gap by themselves.
-- SQLite tier1/tier2/tier3 evidence may affect priority, precedent strength,
-  readout candidates, comparability, and risk notes only.
+- SQLite `tier1_strong_precedent`, `tier2_related_precedent`,
+  `tier3_broad_context`, and `rejected_or_unusable` evidence may affect
+  priority, precedent strength, readout candidates, comparability, and risk
+  notes only.
 - If SQLite patterns conflict with Gaia/LKM reasoning, do not use SQLite to
   overwrite the mechanism chain. Preserve the H-vs-Alt outcome matrix and add
   `sqlite_lkm_conflicts`.
@@ -344,6 +350,10 @@ true`.
 
 - finished `README.md`
 - `ANALYSIS.md` from `gaia-formalize-fine`
+- optional `SYNTHESIS_PLAN.md`; for aggregate packages this is priority
+  evidence when it contains an Evidence Table with these parsed fields:
+  candidate synthesis claim, source labels, evidence class, direction,
+  confidence tier, and over-counting risk
 - `.gaia/beliefs.json`
 - `.github-output/docs/public/data/graph.json`, when available
 - `src/<package>/*.py`
@@ -420,6 +430,16 @@ declare `package_mode`:
 - `aggregate_corpus`: bind to a corpus-level package such as `pvsk-gaia`
   without inventing one locked stack.
 
+Every generated card must also declare `planning_level`:
+
+- `aggregate_roadmap`: default for `aggregate_corpus` packages. It decomposes
+  corpus-level mechanism axes, orders work, and selects implementation
+  candidates without inventing one locked stack.
+- `implementation_candidate`: requires a concrete source package/stack,
+  absorber family, intervention location, and modulator or intervention
+  family. Use this only when the package context is locked enough to design
+  a same-sample matrix for a specific candidate.
+
 Before drafting cards, recover these fields from `ANALYSIS.md`,
 `.gaia/beliefs.json`, `graph.json`, `src/<package>/*.py`, the SQLite database,
 `experiment_context.yaml`, or user-provided context:
@@ -427,7 +447,7 @@ Before drafting cards, recover these fields from `ANALYSIS.md`,
 - `source_package`
 - target weak claim or gap node, emitted as `target_claims`
 - `affected_conclusions`
-- `current_belief`
+- `gap_claim_belief`
 - original Evidence Gap text from `ANALYSIS.md`, emitted as
   `original_evidence_gap_text`
 
@@ -444,6 +464,14 @@ For `aggregate_corpus`, do not require one locked stack. Use a corpus-level
 distribution or dominant families instead. LKM chains and SQLite precedents
 must distinguish package-local, corpus-level, cross-package, and ambiguous
 scope. Do not present aggregate trends as single-paper mechanism proof.
+When `SYNTHESIS_PLAN.md` contains an Evidence Table, parse and preserve the
+six evidence fields before drafting cards. Build the minimal matrix from
+package-local evidence text and source labels, not from package-name branches
+or broad factor axes alone. For PbX2/chloride aggregate evidence, the matrix
+must at minimum include semantic rows for baseline, Pb-rich only,
+chloride-source only, PbCl2 isolead substitution, PbCl2 excess coupling,
+chloride + Pb-rich combined, and high-boundary condition when those motifs are
+supported by the table.
 
 If any required field cannot be recovered, do not emit a generic experiment
 card. Emit a `context_missing_preflight` section instead. The preflight must
@@ -522,6 +550,24 @@ new classifier/archetype fields:
 - `sqlite_quality_warning`
 - `ambiguous_lkm_chains`
 - `p_i_n_adaptation_design`
+- `planning_level`
+- `execution_phase`
+- `depends_on`
+- `enables`
+- `execution_rationale`
+- `package_evidence_brief`
+- `mechanism_decomposition_question`
+- `factor_decomposition`
+- `minimal_discriminating_matrix`
+- `route_designs`
+- `morphology_normalization_strategy`
+- `same_sample_measurement_bundle`
+- `passivation_transport_tradeoff_logic`
+- `boundary_condition_tests`
+- `gaia_evidence_node_mapping`
+- `matrix_closure_rules`
+- `matrix_non_closure_rules`
+- `lab_reference_stack`
 - optional `emergent_gap_family`
 
 `retrieval_evidence.yaml` must include:
@@ -537,6 +583,12 @@ preflight:
   lkm_credential_loaded:
   lab_preferred_device_architecture:
 ```
+
+Aggregate `pvsk-gaia` regeneration is an acceptance artifact for this skill:
+regenerate only `EXPERIMENT_PLAN.md`, `experiments.yaml`,
+`retrieval_evidence.yaml`, and necessary `lkm/*.json` diagnostics in
+`pvsk-gaia`. Do not re-formalize article packages, copy PDFs, or move parsed
+article artifacts into the aggregate package.
 
 ## Workflow
 
@@ -562,6 +614,10 @@ preflight:
    generation. Extract package-local Gaia mechanism evidence first, including
    mechanism chains, missing causal links, conflicting mechanisms, and
    measurement logic.
+   If `SYNTHESIS_PLAN.md` is present, parse its Evidence Table before
+   classifier finalization and carry the candidate claim, source labels,
+   evidence class, direction, confidence tier, and over-counting risk into
+   `package_evidence_brief`.
 
 3. Load the relevant references for this skill:
    - Database retrieval: [references/database-retrieval.md](references/database-retrieval.md)
@@ -578,10 +634,14 @@ preflight:
    Retrieve and tier precedents by package-specific architecture, absorber,
    intervention location, modulator family, paired with/without values, and
    parseable performance/stability metrics. Compute parse coverage and
-   normalized deltas where possible. Record tier1/tier2/tier3/rejected counts
-   and top precedent rows with `similarity_score`, `why_comparable`,
-   `why_limited`, and parsed deltas. Record SQLite role as precedent/delta
-   background only; never use it as mechanism proof.
+   normalized deltas where possible. Record
+   `tier1_strong_precedent`, `tier2_related_precedent`,
+   `tier3_broad_context`, and `rejected_or_unusable` counts. Top precedent
+   rows must include a component `similarity_score` breakdown for architecture,
+   absorber, intervention location, modulator family, paired metric
+   completeness, mechanism relevance, and total, plus `precedent_group`,
+   `why_comparable`, `why_limited`, and parsed deltas. Record SQLite role as
+   precedent/delta background only; never use it as mechanism proof.
 
 6. Query LKM for every gap when access is available.
    Retrieve hybrid claim matches, reasoning-chain matches, claim reasoning
@@ -613,6 +673,12 @@ preflight:
    axes and decision rules rather than hard-coded metric-specific modules. Add
    analog-control logic for causal attribution or multifunctional-passivator
    gaps.
+   For aggregate packages, `minimal_discriminating_matrix` must contain
+   concrete semantic rows with row label, evidence basis, source labels,
+   variable role, held-constant design assumptions, discriminating readouts,
+   H/Alt interpretation, closure rule, and non-closure rule. Broad axes such
+   as "intervention family" or "mechanism axis" can remain in the factor
+   decomposition, but they are not sufficient as the matrix.
 
 8. If open-world design mode proposes an `emergent_gap_family`, keep
    `review_required: true`. New families become registry archetypes only after

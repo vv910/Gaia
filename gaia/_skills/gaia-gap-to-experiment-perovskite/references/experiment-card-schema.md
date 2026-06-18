@@ -46,17 +46,42 @@ uv run python scripts/validate_experiment_cards.py --allow-readme-fallback exper
 
 Do not use README fallback in strict real-package mode.
 
+For `pvsk-gaia` aggregate acceptance runs, regenerate only
+`EXPERIMENT_PLAN.md`, `experiments.yaml`, `retrieval_evidence.yaml`, and
+necessary `lkm/*.json` diagnostics inside `pvsk-gaia`. Article package
+outputs, source-paper formalizations, PDFs, and parsed article artifacts are
+out of scope.
+
 ## YAML Schema
 
 Every card in `experiments.yaml` must include these keys:
 
 ```yaml
 - gap_id:
+  package_mode:
+  planning_level:
+  execution_phase:
+  depends_on:
+  enables:
+  execution_rationale:
   source_package:
   target_claims:
   affected_conclusions:
-  current_belief:
+  gap_claim_belief:
   original_evidence_gap_text:
+  package_evidence_brief:
+  mechanism_decomposition_question:
+  factor_decomposition:
+  minimal_discriminating_matrix:
+  route_designs:
+  morphology_normalization_strategy:
+  same_sample_measurement_bundle:
+  passivation_transport_tradeoff_logic:
+  boundary_condition_tests:
+  gaia_evidence_node_mapping:
+  matrix_closure_rules:
+  matrix_non_closure_rules:
+  lab_reference_stack:
   gap_type:
   gap_classifier_output:
   mechanism_axes:
@@ -80,6 +105,7 @@ Every card in `experiments.yaml` must include these keys:
   lkm_role:
   lkm_design_reasoning:
   lkm_evidence_summary:
+  top_reasoning_chains:
   design_motif_evidence:
   design_memory_role:
   mechanism_source_breakdown:
@@ -136,9 +162,21 @@ payloads; raw or longer summaries can live in `retrieval_evidence.yaml` and
 `affected_conclusions`
 : Exported conclusions whose belief would change if the gap closes.
 
-`current_belief`
+`planning_level`
+: `aggregate_roadmap` for aggregate/corpus packages and
+  `implementation_candidate` for locked package/stack/absorber/intervention
+  contexts. Aggregate roadmaps order design work and select candidates;
+  implementation candidates must carry concrete source-device context.
+
+`execution_phase`, `depends_on`, `enables`, and `execution_rationale`
+: Experimental order fields. These are separate from scientific `priority`.
+  Priority ranks importance; execution fields state which design block must run
+  first and what it unlocks.
+
+`gap_claim_belief`
 : Belief from `.gaia/beliefs.json` when available. Use `unknown` only when the
-  belief file cannot map the claim.
+  belief file cannot map the claim. `current_belief` is a legacy alias and
+  should not be emitted by new plans.
 
 `original_evidence_gap_text`
 : Verbatim or tightly excerpted Evidence Gap text from `ANALYSIS.md` that
@@ -187,9 +225,11 @@ payloads; raw or longer summaries can live in `retrieval_evidence.yaml` and
 
 `database_precedents`
 : SQLite precedent summary. Must include query summaries or row-count links,
-  tier1/tier2/tier3/rejected counts, parse coverage for PCE, FF, Voc, Jsc, and
-  hysteresis, and top precedent rows with similarity score, comparability
-  rationale, limitation rationale, and parsed deltas.
+  `tier1_strong_precedent`, `tier2_related_precedent`,
+  `tier3_broad_context`, and `rejected_or_unusable` counts, parse coverage for
+  PCE, FF, Voc, Jsc, and hysteresis, and top precedent rows with component
+  `similarity_score` breakdowns, `precedent_group`, comparability rationale,
+  limitation rationale, and parsed deltas.
 
 `sqlite_role`
 : Must explicitly say that SQLite is for precedent discovery, stack/intervention
@@ -197,10 +237,51 @@ payloads; raw or longer summaries can live in `retrieval_evidence.yaml` and
   is the canonical `sqlite_weight_or_role` field for this skill.
 
 `database_confidence`
-: Required when parse coverage is low, tier-1 evidence is absent, or many rows
-  have unknown composition/stack. State the limitation that should lower card
-  confidence. Do not upgrade mechanism confidence from SQLite performance
-  deltas alone.
+: Structured confidence penalty with `overall`, `metric_coverage`, and
+  `interpretation_limit`. Required when parse coverage is low, tier-1 evidence
+  is absent, or many rows have unknown composition/stack. State the limitation
+  that should lower card confidence. Do not upgrade mechanism confidence from
+  SQLite performance deltas alone.
+
+`minimal_discriminating_matrix`
+: Evidence-derived semantic matrix of concrete mechanism-decomposition rows.
+  Aggregate packages should prioritize `SYNTHESIS_PLAN.md` Evidence Table rows
+  over broad factor axes. Each row must include `row_label`, `evidence_basis`,
+  `source_labels`, `variable_role`, `held_constant_design_assumptions`,
+  `discriminating_readouts`, `h_alt_interpretation`, `closure_rule`, and
+  `non_closure_rule`. It must use semantic labels such as baseline,
+  mechanism-family, alternative-family, morphology-normalized comparator, or
+  boundary class. It must not emit exact solvent, concentration, annealing, or
+  stepwise fabrication details.
+
+`package_evidence_brief.synthesis_evidence_table`
+: Parsed rows from `SYNTHESIS_PLAN.md` when present. The canonical fields are
+  `candidate_synthesis_claim`, `source_labels`, `evidence_class`,
+  `direction`, `confidence_tier`, and `over_counting_risk`. Aggregate
+  mechanism matrices should cite these rows as their evidence basis instead
+  of relying only on generic factor groups.
+
+`route_designs`
+: Design-level route logic, including a standard source-context route, a
+  morphology-normalized route, and p-i-n translation route when relevant.
+
+`same_sample_measurement_bundle`
+: Same-sample readout bundle covering phase/composition, residual-phase
+  quantification, recombination/trap, device metrics, and
+  stability/readout-history classes. Transport/contact readouts may also be
+  included when the mechanism requires them.
+
+`gaia_evidence_node_mapping`
+: Mapping from matrix outcomes to target claims, affected conclusions,
+  readable belief-update labels, source DSL nodes, and synthesis evidence
+  rows. Use labels such as `chloride_distribution_isolated` or
+  `morphology_normalization_survives`, not opaque `E1`-style IDs. Outcome
+  states such as `support_H` can be retained separately as
+  `outcome_update_states`.
+
+`top_reasoning_chains`
+: LKM chain summaries ranked by reasoning relevance. Each item should state
+  `relevance`, `supports`, `key_premise`, `key_limitation`, and provenance.
 
 `lkm_role`
 : How LKM was used for mechanism reasoning, H-vs-Alt logic, measurement-class

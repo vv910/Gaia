@@ -15,8 +15,10 @@ not prove a mechanism by themselves.
 Hard role boundary:
 
 - SQLite must not be the primary source for mechanism attribution.
-- SQLite tier1/tier2/tier3 evidence may change experiment priority,
-  comparability, precedent strength, readout candidates, and risk notes only.
+- SQLite `tier1_strong_precedent`, `tier2_related_precedent`,
+  `tier3_broad_context`, and `rejected_or_unusable` evidence may change
+  experiment priority, comparability, precedent strength, readout candidates,
+  and risk notes only.
 - SQLite deltas must never close a mechanism gap by themselves.
 - If SQLite patterns conflict with Gaia package reasoning or LKM reasoning,
   preserve the H-vs-Alt outcome matrix, mark `sqlite_lkm_conflicts`, and do not
@@ -340,12 +342,21 @@ Every experiment card must report:
 - SQL query summaries in `database_queries_run`
 - row counts by query class
 - parse coverage for PCE, FF, Voc, Jsc, and hysteresis
-- `tier1_count`, `tier2_count`, `tier3_count`, and `rejected_count`
+- `tier1_strong_precedent`, `tier2_related_precedent`,
+  `tier3_broad_context`, and `rejected_or_unusable`
 - top precedent rows, each with:
-  - `similarity_score`
+  - `similarity_score` component breakdown
+  - `precedent_group`
   - `why_comparable`
   - `why_limited`
   - parsed deltas for available PCE, FF, Voc, Jsc, and hysteresis
+
+`similarity_score` must be a mapping with architecture, absorber,
+intervention-location, modulator-family, paired-metric-completeness,
+mechanism-relevance, and total components. `precedent_group` is one of
+`dose_series`, `device_variant`, `duplicate_extraction`, or
+`independent_paper`. Repeated `similarity_score.total == 1.0` values are
+suspicious unless explicitly audited as duplicate extractions with limits.
 
 For each gap, the database summary should state whether database patterns
 support H, support Alt, are mixed, or are too sparse. If SQLite precedent
@@ -357,7 +368,8 @@ Do not write "SQLite proves", "database confirms the mechanism", or equivalent
 mechanism-closure language. A SQLite pattern can raise priority or motivate a
 readout; it cannot supply the causal mechanism attribution.
 
-If SQLite is available but parse coverage is low, continue only with an
-explicit `database_confidence` limitation in each affected card. The limitation
-must say which metrics or tiers are weak and must not upgrade mechanism
-confidence from performance deltas alone.
+If SQLite is available but parse coverage is low, continue only with a
+structured `database_confidence` limitation in each affected card. It must
+include `overall`, `metric_coverage`, and `interpretation_limit`; the
+limitation must say which metrics or tiers are weak and must not upgrade
+mechanism confidence or close mechanism nodes from performance deltas alone.
